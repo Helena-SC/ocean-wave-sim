@@ -7,80 +7,53 @@
 
   <style>
     :root{
-      --panel-bg: rgba(12, 18, 28, 0.62);
+      --panel-bg: rgba(10, 16, 26, 0.55);
       --panel-border: rgba(255,255,255,0.14);
       --text: rgba(235, 245, 255, 0.92);
       --muted: rgba(235, 245, 255, 0.70);
       --shadow: 0 18px 55px rgba(0,0,0,0.40);
       --radius: 18px;
-
-      /* 用于匹配背景图的“地平线高度”（0~1，越大地平线越靠下） */
-      --horizon: 0.53;
     }
 
+    /* Deep night sky background + your star photo */
     html, body {
       height:100%;
       margin:0;
       overflow:hidden;
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       background: #050F1E;
-    }
-
-    /* 背景：你的星空照片（只作为背景层） */
-    body{
-      background-image: url("./huan-xiang-shi-xing-xi-bei-jing.jpg");
+      background-image:
+        radial-gradient(circle at 60% 25%, rgba(255,255,255,0.08), rgba(0,0,0,0.0) 38%),
+        linear-gradient(to bottom, rgba(5,15,30,0.98), rgba(5,15,30,0.82) 48%, rgba(5,15,30,0.98)),
+        url("./huan-xiang-shi-xing-xi-bei-jing.jpg");
       background-size: cover;
-      background-position: center top;
+      background-position: center top;  /* keep photo "water" mostly above the ocean plane */
       background-repeat: no-repeat;
-      background-attachment: fixed;
     }
 
-    /* 用一层“遮罩”把原图里水面那部分压暗，避免和我们渲染的海面叠加看起来脏 */
-    .bg-mask{
+    /* Extra darkening + vignette */
+    body::before{
+      content:"";
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: 1;
-      background:
-        linear-gradient(
-          to bottom,
-          rgba(0,0,0,0.00) 0%,
-          rgba(0,0,0,0.00) calc(var(--horizon) * 100%),
-          rgba(5,15,30,0.88) calc(var(--horizon) * 100% + 2%),
-          rgba(5,15,30,1.00) 100%
-        );
-    }
-
-    #app{
-      position: fixed;
-      inset: 0;
       z-index: 2;
-    }
-    canvas{
-      display:block;
-      width:100%;
-      height:100%;
-    }
-
-    /* 轻微电影感：暗角 */
-    .fx {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 8;
       background:
-        radial-gradient(circle at 62% 36%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 18%, rgba(0,0,0,0.00) 44%),
-        radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00) 34%, rgba(0,0,0,0.60) 78%, rgba(0,0,0,0.92) 100%);
+        radial-gradient(circle at 52% 35%, rgba(255,255,255,0.10) 0%, rgba(0,0,0,0.00) 34%),
+        radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00) 35%, rgba(0,0,0,0.62) 78%, rgba(0,0,0,0.88) 100%);
       mix-blend-mode: multiply;
     }
 
-    /* 颗粒噪声 */
+    #app { position: fixed; inset: 0; z-index: 1; }
+    canvas.webgl { display:block; width:100%; height:100%; }
+
+    /* Subtle film grain */
     #grain {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: 9;
-      opacity: 0.055;
+      z-index: 3;
+      opacity: 0.07;
       mix-blend-mode: overlay;
     }
 
@@ -89,7 +62,7 @@
       position: fixed;
       left: 18px;
       top: 18px;
-      width: min(380px, calc(100vw - 36px));
+      width: min(390px, calc(100vw - 36px));
       padding: 16px 16px 14px;
       border-radius: var(--radius);
       background: var(--panel-bg);
@@ -99,21 +72,15 @@
       -webkit-backdrop-filter: blur(12px);
       color: var(--text);
       user-select: none;
-      z-index: 10;
+      z-index: 4;
     }
     .title { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 8px; }
     .title h1 { font-size: 15px; letter-spacing: 0.2px; margin:0; font-weight: 650; }
-    .badges { display:flex; gap: 8px; align-items:center; }
     .badge {
-      font-size: 11px; color: rgba(235,245,255,0.75);
+      font-size: 11px; color: rgba(200, 255, 235, 0.90);
       padding: 4px 10px; border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.14);
-      background: rgba(255,255,255,0.04);
-    }
-    .badge.live{
-      border-color: rgba(120, 255, 220, 0.22);
-      background: rgba(120, 255, 220, 0.08);
-      color: rgba(210, 255, 242, 0.92);
+      border: 1px solid rgba(120, 255, 200, 0.22);
+      background: rgba(120, 255, 200, 0.08);
     }
     .desc {
       font-size: 11px;
@@ -121,7 +88,6 @@
       line-height: 1.35;
       margin-bottom: 10px;
     }
-
     .row { display:flex; gap: 12px; align-items:center; margin: 10px 0; }
     .row label { flex: 0 0 92px; font-size: 12px; color: var(--muted); }
     .row input[type="range"] { flex: 1; accent-color: rgb(120, 210, 255); }
@@ -140,7 +106,6 @@
       transition: transform 120ms ease, background 120ms ease;
     }
     button:hover { background: rgba(255,255,255,0.10); transform: translateY(-1px); }
-    button:active { transform: translateY(0px); }
 
     .hint {
       margin-top: 10px;
@@ -158,12 +123,11 @@
       color: rgba(235,245,255,0.90);
     }
 
-    /* Error overlay */
     .overlay {
       position: fixed; inset: 0;
       display: none; align-items: center; justify-content: center;
       padding: 22px;
-      background: rgba(5, 15, 30, 0.94);
+      background: rgba(5, 15, 30, 0.92);
       color: rgba(235, 245, 255, 0.92);
       z-index: 60;
     }
@@ -171,7 +135,7 @@
       width: min(860px, 100%);
       border: 1px solid rgba(255,255,255,0.14);
       border-radius: 16px;
-      background: rgba(18, 28, 40, 0.55);
+      background: rgba(10, 16, 26, 0.62);
       box-shadow: 0 18px 55px rgba(0,0,0,0.35);
       padding: 16px;
     }
@@ -182,28 +146,24 @@
       word-break: break-word;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 12px;
-      color: rgba(235, 245, 255, 0.84);
+      color: rgba(235, 245, 255, 0.82);
       line-height: 1.35;
     }
   </style>
 </head>
 
 <body>
-  <div class="bg-mask"></div>
   <div id="app"></div>
-  <div class="fx"></div>
   <canvas id="grain"></canvas>
 
   <div class="hud" aria-label="Ocean Wave Simulation Controls">
     <div class="title">
       <h1>Ocean Wave Simulation</h1>
-      <div class="badges">
-        <div class="badge live">Live</div>
-      </div>
+      <div class="badge">Live</div>
     </div>
 
     <div class="desc">
-      Background is your photo. Ocean is simulated with layered waves + env reflection sampled from that photo.
+      Deep night ocean with layered waves and subtle specular sparkle.
     </div>
 
     <div class="row">
@@ -231,7 +191,7 @@
     </div>
 
     <div class="hint">
-      Drag to look around. Scroll to zoom. Press <kbd>F</kbd> fullscreen, <kbd>Space</kbd> pause.
+      Drag to look around. Scroll to zoom. Press <kbd>F</kbd> for fullscreen, <kbd>Space</kbd> to pause.
     </div>
   </div>
 
@@ -243,39 +203,61 @@
   </div>
 
   <script type="module">
-    import * as THREE from "./vendor/three.module.min.js";
-
     const overlay = document.getElementById("overlay");
     const overlayText = document.getElementById("overlayText");
-
     function showError(err){
       const msg = (err && err.stack) ? err.stack : String(err);
       console.error(msg);
       overlayText.textContent = msg;
       overlay.style.display = "flex";
     }
+    function hasWebGL(){
+      try{
+        const c = document.createElement("canvas");
+        return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
+      }catch(_){ return false; }
+    }
 
-    // --- Grain ---
+    // IMPORTANT: no bare "three" import on GitHub Pages.
+    async function loadThree(){
+      const candidates = [
+        "./vendor/three.module.min.js",
+        "./vendor/three.module.js",
+        "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      ];
+      let lastErr = null;
+      for (const url of candidates){
+        try { return await import(url); }
+        catch (e) { lastErr = e; }
+      }
+      throw new Error("Failed to import Three.js. Last error: " + (lastErr?.message || lastErr));
+    }
+
+    // Film grain
     const grain = document.getElementById("grain");
     const gctx = grain.getContext("2d", { alpha: true });
     function resizeGrain(){
       grain.width = Math.floor(window.innerWidth);
       grain.height = Math.floor(window.innerHeight);
     }
-    resizeGrain();
     function drawGrain(){
       const w = grain.width, h = grain.height;
       const img = gctx.createImageData(w, h);
       const d = img.data;
-      for (let i = 0; i < d.length; i += 16){
+      for (let i = 0; i < d.length; i += 24){
         const v = (Math.random() * 255) | 0;
         d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
       }
       gctx.putImageData(img, 0, 0);
     }
+    resizeGrain();
 
     try{
-      // ---------- UI ----------
+      if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration in your browser.");
+
+      const THREE = await loadThree();
+
+      // UI
       const ui = {
         wind: document.getElementById("wind"),
         height: document.getElementById("height"),
@@ -287,6 +269,7 @@
         pauseBtn: document.getElementById("pauseBtn"),
         fsBtn: document.getElementById("fsBtn"),
       };
+
       function syncLabels(){
         ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
         ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
@@ -299,15 +282,15 @@
       });
       syncLabels();
 
-      // ---------- Renderer (透明，让背景照片透出来) ----------
+      // Renderer (transparent so CSS star photo shows through)
       const app = document.getElementById("app");
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
 
       const renderer = new THREE.WebGLRenderer({
         antialias: !isMobile,
+        alpha: true,
         powerPreference: "high-performance",
-        alpha: true
       });
       renderer.setPixelRatio(dpr);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -315,42 +298,37 @@
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
       renderer.setClearColor(0x000000, 0.0);
+      renderer.domElement.className = "webgl";
       app.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x050F1E, 0.0065);
 
-      // ---------- Camera / minimal orbit ----------
-      const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 5000);
+      const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.05, 5000);
 
+      // Custom orbit (no OrbitControls)
       const orbit = {
-        target: new THREE.Vector3(0, 0.55, 30.0),
-        radius: 28,
-        yaw: 0.0,
-        pitch: 0.14,
-        minRadius: 12,
-        maxRadius: 110,
+        target: new THREE.Vector3(0, 0.6, 0),
+        radius: 22,
+        yaw: 1.05,
+        pitch: 0.18,
+        minRadius: 10,
+        maxRadius: 80,
         minPitch: 0.06,
         maxPitch: Math.PI * 0.40,
         dragging: false,
         lastX: 0,
         lastY: 0,
-        speed: 0.0070
+        speed: 0.007,
       };
 
       function updateCamera(){
         const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
         const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
-
         const x = orbit.radius * cp * cy;
         const z = orbit.radius * cp * sy;
         const y = orbit.radius * sp;
-
-        // 向前看：让海平线更接近你图片的山脉位置
-        camera.position.set(
-          orbit.target.x + x,
-          orbit.target.y + y,
-          orbit.target.z - 26.0 - z
-        );
+        camera.position.set(orbit.target.x + x, orbit.target.y + y, orbit.target.z + z);
         camera.lookAt(orbit.target);
       }
       updateCamera();
@@ -383,78 +361,68 @@
         updateCamera();
       }, { passive: false });
 
-      // ---------- A soft key light (只作为高光来源，不做月亮物体) ----------
-      const ambient = new THREE.AmbientLight(0x9db6d6, 0.06);
+      // Moonless night lighting
+      const ambient = new THREE.AmbientLight(0xcfe6ff, 0.11);
       scene.add(ambient);
 
-      const key = new THREE.DirectionalLight(0xe9f3ff, 1.10);
-      key.position.set(40, 65, 10);
+      const key = new THREE.DirectionalLight(0xd6f0ff, 0.80);
+      key.position.set(40, 52, 10);
       scene.add(key);
 
-      // ---------- Env texture: 用同一张照片做海面反射（关键：真实感） ----------
-      const envTex = await new Promise((resolve, reject) => {
-        const loader = new THREE.TextureLoader();
-        loader.load(
-          "./huan-xiang-shi-xing-xi-bei-jing.jpg",
-          (tex) => {
-            tex.colorSpace = THREE.SRGBColorSpace;
-            tex.wrapS = THREE.ClampToEdgeWrapping;
-            tex.wrapT = THREE.ClampToEdgeWrapping;
-            tex.minFilter = THREE.LinearMipmapLinearFilter;
-            tex.magFilter = THREE.LinearFilter;
-            tex.generateMipmaps = true;
-            resolve(tex);
-          },
-          undefined,
-          (err) => reject(err)
-        );
-      });
+      const fill = new THREE.DirectionalLight(0x9bb8ff, 0.22);
+      fill.position.set(-35, 20, -30);
+      scene.add(fill);
 
-      // ---------- Ocean mesh ----------
-      const oceanSize = 1800;
-      const segments = isMobile ? 260 : 520;
-
+      // Ocean (layered waves + derivative-based normals to remove “striping”)
+      const oceanSize = 1100;
+      const segments = isMobile ? 280 : 460;
       const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
-      oceanGeo.rotateX(-Math.PI / 2);
-      oceanGeo.translate(0, 0.0, 320);  // 往前推一点，铺满画面
+      oceanGeo.rotateX(-Math.PI/2);
 
       const oceanMat = new THREE.ShaderMaterial({
-        transparent: false,
-        depthWrite: true,
+        transparent: true,
         uniforms: {
           uTime:   { value: 0 },
           uWind:   { value: parseFloat(ui.wind.value) },
           uHeight: { value: parseFloat(ui.height.value) },
           uLight:  { value: parseFloat(ui.light.value) },
-          uKeyDir: { value: new THREE.Vector3().copy(key.position).normalize() },
           uCamPos: { value: new THREE.Vector3() },
-          uEnv:    { value: envTex },
+          uKeyDir: { value: new THREE.Vector3().copy(key.position).normalize() },
+          uFogColor: { value: new THREE.Color(0x050F1E) },
+          uFogDensity: { value: 0.0065 },
+          uDeep: { value: new THREE.Color(0x061425) },
+          uShallow: { value: new THREE.Color(0x0B2638) },
         },
         vertexShader: `
           precision highp float;
-
           uniform float uTime;
           uniform float uWind;
           uniform float uHeight;
-
           varying vec3 vWorldPos;
-          varying vec3 vN;
-          varying float vFoamHint;
 
-          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
+          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed){
             float t = uTime * speed;
             float phase = freq * dot(dir, xz) + t;
             float s = sin(phase);
             float c = cos(phase);
-
             float qa = steep * amp;
-            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+            return vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+          }
 
-            nAcc.x += -dir.x * qa * freq * s;
-            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.18;
-            nAcc.z += -dir.y * qa * freq * s;
-
-            return disp;
+          float hash(vec2 p){
+            p = fract(p * vec2(123.34, 345.45));
+            p += dot(p, p + 34.345);
+            return fract(p.x * p.y);
+          }
+          float vnoise(vec2 p){
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            float a = hash(i);
+            float b = hash(i + vec2(1.0, 0.0));
+            float c = hash(i + vec2(0.0, 1.0));
+            float d = hash(i + vec2(1.0, 1.0));
+            vec2 u = f*f*(3.0-2.0*f);
+            return mix(a, b, u.x) + (c - a)*u.y*(1.0-u.x) + (d - b)*u.x*u.y;
           }
 
           void main(){
@@ -464,38 +432,33 @@
             float wind = max(uWind, 0.0);
             float H = uHeight;
 
-            vec2 wdir = normalize(vec2(1.0, 0.22));
-            vec2 d1 = normalize(wdir + vec2( 0.17, -0.04));
-            vec2 d2 = normalize(wdir + vec2(-0.09,  0.13));
+            vec2 wdir = normalize(vec2(1.0, 0.32));
+            vec2 d1 = normalize(wdir + vec2( 0.18, -0.06));
+            vec2 d2 = normalize(wdir + vec2(-0.10,  0.14));
             vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
-            vec2 d4 = normalize(wdir + vec2(-0.22, -0.06));
+            vec2 d4 = normalize(wdir + vec2(-0.22, -0.05));
             vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
+            vec2 d6 = normalize(wdir + vec2(-0.34,  0.06));
+            vec2 d7 = normalize(wdir + vec2( 0.30, -0.18));
 
-            float w = 0.12 + wind * 0.018;
+            float w = 0.11 + wind * 0.018;
 
-            vec3 nAcc = vec3(0.0, 1.0, 0.0);
             vec3 disp = vec3(0.0);
+            disp += gerstner(xz, d1, 0.62, 0.95*H, 0.035, 1.00*w);
+            disp += gerstner(xz, d2, 0.52, 0.65*H, 0.062, 1.35*w);
+            disp += gerstner(xz, d3, 0.40, 0.36*H, 0.105, 1.85*w);
+            disp += gerstner(xz, d4, 0.32, 0.22*H, 0.165, 2.35*w);
+            disp += gerstner(xz, d5, 0.26, 0.14*H, 0.245, 3.00*w);
+            disp += gerstner(xz, d6, 0.20, 0.11*H, 0.320, 3.60*w);
+            disp += gerstner(xz, d7, 0.18, 0.08*H, 0.420, 4.20*w);
 
-            // 大尺度波
-            disp += gerstner(xz, d1, 0.62, 1.05*H, 0.034, 1.00*w, nAcc);
-            disp += gerstner(xz, d2, 0.52, 0.70*H, 0.062, 1.34*w, nAcc);
-            disp += gerstner(xz, d3, 0.40, 0.44*H, 0.110, 1.88*w, nAcc);
-            disp += gerstner(xz, d4, 0.30, 0.28*H, 0.170, 2.40*w, nAcc);
-            disp += gerstner(xz, d5, 0.22, 0.18*H, 0.250, 3.05*w, nAcc);
-
-            // 中尺度细纹（增加“层次”）
-            float rt = uTime * (1.2 + wind*0.02);
-            float r1 = sin( (xz.x*1.40 + xz.y*1.05)*1.1 + rt*2.2 );
-            float r2 = sin( (xz.x*2.20 - xz.y*1.70)*1.2 + rt*1.8 );
-            float micro = (r1*0.10 + r2*0.08) * (0.24 + 0.02*wind) * (0.35 + 0.55*H);
-            disp.y += micro;
+            float t = uTime * (0.75 + wind*0.02);
+            float n = vnoise(xz * 0.22 + vec2(t*0.20, -t*0.14));
+            float n2 = vnoise(xz * 0.45 + vec2(-t*0.32, t*0.18));
+            float micro = (n*2.0-1.0) * 0.08 + (n2*2.0-1.0) * 0.05;
+            disp.y += micro * (0.35 + 0.55*H) * (0.35 + 0.02*wind);
 
             pos += disp;
-
-            float slope = 1.0 - normalize(nAcc).y;
-            vFoamHint = smoothstep(0.18, 0.55, slope) * (0.55 + 0.45*H);
-
-            vN = normalize(nAcc);
 
             vec4 wp = modelMatrix * vec4(pos, 1.0);
             vWorldPos = wp.xyz;
@@ -505,183 +468,120 @@
         fragmentShader: `
           precision highp float;
 
-          uniform float uTime;
           uniform float uLight;
-          uniform float uWind;
-          uniform float uHeight;
-
-          uniform vec3  uKeyDir;
-          uniform vec3  uCamPos;
-
-          uniform sampler2D uEnv;
+          uniform vec3 uKeyDir;
+          uniform vec3 uCamPos;
+          uniform vec3 uFogColor;
+          uniform float uFogDensity;
+          uniform vec3 uDeep;
+          uniform vec3 uShallow;
 
           varying vec3 vWorldPos;
-          varying vec3 vN;
-          varying float vFoamHint;
 
-          float sat(float x){ return clamp(x, 0.0, 1.0); }
-
-          float hash(vec2 p){
-            p = fract(p*vec2(123.34, 345.45));
-            p += dot(p, p+34.345);
-            return fract(p.x*p.y);
-          }
-
-          float noise(vec2 p){
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            float a = hash(i);
-            float b = hash(i + vec2(1.0, 0.0));
-            float c = hash(i + vec2(0.0, 1.0));
-            float d = hash(i + vec2(1.0, 1.0));
-            vec2 u = f*f*(3.0-2.0*f);
-            return mix(a, b, u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
-          }
-
-          float fbm(vec2 p){
-            float v = 0.0;
-            float a = 0.5;
-            for(int i=0;i<5;i++){
-              v += a * noise(p);
-              p *= 2.0;
-              a *= 0.5;
-            }
-            return v;
-          }
-
-          vec3 microNormal(vec2 xz, float t){
-            // 稍微多一层，增加“丰富的波纹层次”
-            vec2 d1 = normalize(vec2(1.0, 0.35));
-            vec2 d2 = normalize(vec2(-0.55, 0.82));
-            vec2 d3 = normalize(vec2(0.12, -0.99));
-
-            float f1 = 0.90, f2 = 1.45, f3 = 2.05;
-            float a = 0.20 + 0.016*uWind + 0.07*uHeight;
-
-            float p1 = dot(xz, d1)*f1 + t*1.9;
-            float p2 = dot(xz, d2)*f2 + t*2.3;
-            float p3 = dot(xz, d3)*f3 + t*2.7;
-
-            vec2 g = vec2(
-              cos(p1)*d1.x*f1 + cos(p2)*d2.x*f2 + cos(p3)*d3.x*f3,
-              cos(p1)*d1.y*f1 + cos(p2)*d2.y*f2 + cos(p3)*d3.y*f3
-            );
-
-            // 噪声扰动（像真实水面那种“碎光”）
-            float n = fbm(xz*0.10 + vec2(t*0.08, -t*0.05));
-            g *= mix(0.85, 1.15, n);
-
-            return normalize(vec3(-g.x*a, 1.0, -g.y*a));
-          }
-
-          float fresnel(float cosTheta, float F0){
+          float fresnelSchlick(float cosTheta, float F0){
             return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
           }
 
-          float specGGX(vec3 N, vec3 V, vec3 L, float rough){
-            vec3 H = normalize(V + L);
-            float ndl = max(dot(N,L), 0.0);
-            float ndv = max(dot(N,V), 0.0);
-            float ndh = max(dot(N,H), 0.0);
-            float a = rough*rough;
+          float D_GGX(float NoH, float a){
             float a2 = a*a;
-            float denom = (ndh*ndh)*(a2-1.0)+1.0;
-            float D = a2 / (3.14159 * denom * denom + 1e-5);
-            float k = (rough+1.0);
-            k = (k*k)/8.0;
-            float Gv = ndv / (ndv*(1.0-k)+k);
-            float Gl = ndl / (ndl*(1.0-k)+k);
-            float G = Gv*Gl;
-            return D*G*ndl;
+            float d = (NoH*NoH) * (a2 - 1.0) + 1.0;
+            return a2 / (3.14159265 * d * d);
+          }
+          float G_SchlickGGX(float NoV, float k){
+            return NoV / (NoV * (1.0 - k) + k);
+          }
+          float G_Smith(float NoV, float NoL, float k){
+            return G_SchlickGGX(NoV, k) * G_SchlickGGX(NoL, k);
           }
 
-          vec2 dirToEnvUV(vec3 d){
-            // 反射方向 -> 球面采样 u,v
-            float u = atan(d.z, d.x) / (6.2831853) + 0.5;
-            float v = asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5;
-
-            // 只取“天空部分”，避免采到原图的水面区域
-            v = clamp(v, 0.52, 0.98);
-            return vec2(u, v);
+          float hash(vec2 p){
+            p = fract(p * vec2(123.34, 345.45));
+            p += dot(p, p + 34.345);
+            return fract(p.x * p.y);
           }
 
           void main(){
+            vec3 dx = dFdx(vWorldPos);
+            vec3 dy = dFdy(vWorldPos);
+            vec3 N = normalize(cross(dx, dy));
+            if (N.y < 0.0) N = -N;
+
             vec3 V = normalize(uCamPos - vWorldPos);
-
-            vec3 N0 = normalize(vN);
-            vec3 Nm = microNormal(vWorldPos.xz*0.60, uTime);
-            vec3 N  = normalize(mix(N0, Nm, 0.62));
-
-            // 深邃夜海基色（更接近 #050F1E / #0A1428 的体系）
-            vec3 deep = vec3(0.006, 0.020, 0.045);
-            vec3 mid  = vec3(0.014, 0.045, 0.080);
-            vec3 col = mix(deep, mid, 0.58);
-
-            // 环境反射（来自你的星空照片）
-            vec3 R = reflect(-V, N);
-            vec2 uv = dirToEnvUV(normalize(R));
-            vec3 env = texture2D(uEnv, uv).rgb;
-
-            // Fresnel 控制反射比例（真实水面必须有）
-            float cosTheta = sat(dot(N, V));
-            float F = fresnel(cosTheta, 0.02);
-
-            // 让反射更“冷”、更夜空感
-            env = pow(env, vec3(1.05));
-            col = mix(col, env, F*(0.72 + 0.20*uLight));
-
-            // 高光（碎光、sparkle）
             vec3 L = normalize(uKeyDir);
-            float rough = mix(0.24, 0.10, uLight);
-            float spec = specGGX(N, V, L, rough);
-            col += vec3(0.90, 0.95, 1.00) * spec * (0.10 + 0.75*uLight);
+            vec3 H = normalize(V + L);
 
-            // 轻微泡沫（只在浪尖，不要太白，保持 calming）
-            float foam = vFoamHint;
-            col = mix(col, vec3(0.70, 0.80, 0.92), foam * 0.10);
+            float NoV = max(dot(N, V), 0.0);
+            float NoL = max(dot(N, L), 0.0);
+            float NoH = max(dot(N, H), 0.0);
+            float VoH = max(dot(V, H), 0.0);
 
-            // 远处稍微更亮一点（模仿空气透视）
             float dist = length(uCamPos - vWorldPos);
-            float haze = sat((dist - 40.0) / 180.0);
-            col = mix(col, vec3(0.018, 0.050, 0.090), haze*0.20);
+            float depthMix = clamp((vWorldPos.y + 1.6) * 0.12, 0.0, 1.0);
+            vec3 baseCol = mix(uDeep, uShallow, depthMix);
 
-            // 电影感轻微对比
-            col = pow(col, vec3(0.98));
+            float haze = smoothstep(12.0, 120.0, dist);
+            baseCol = mix(baseCol, vec3(0.05, 0.10, 0.14), haze*0.35);
 
-            gl_FragColor = vec4(col, 1.0);
+            float F = fresnelSchlick(NoV, 0.02);
+            vec3 skyTint = vec3(0.06, 0.09, 0.12);
+            vec3 col = mix(baseCol, skyTint, F * (0.55 + 0.25*uLight));
+
+            float rough = mix(0.12, 0.05, uLight);
+            float a = rough * rough;
+            float k = (rough + 1.0);
+            k = (k*k) / 8.0;
+
+            float D = D_GGX(NoH, a);
+            float G = G_Smith(NoV, NoL, k);
+            float Fspec = fresnelSchlick(VoH, 0.02);
+            float spec = (D * G * Fspec) / max(4.0 * NoV * NoL, 0.001);
+
+            vec3 specCol = vec3(0.95, 0.98, 1.00) * (0.55 + 0.65*uLight);
+            col += specCol * spec * NoL;
+
+            float foam = smoothstep(0.62, 0.92, 1.0 - N.y);
+            col = mix(col, vec3(0.80, 0.90, 1.00), foam * (0.10 + 0.10*uLight));
+
+            float sp = hash(vWorldPos.xz * 1.7);
+            float sparkle = smoothstep(0.992, 1.0, sp) * (0.08 + 0.15*uLight) * NoL;
+            col += vec3(1.0) * sparkle * (0.25 + 0.25*F);
+
+            col = pow(col, vec3(0.95));
+
+            float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+            col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
+
+            gl_FragColor = vec4(col, 0.98);
           }
-        `
+        `,
       });
 
       const ocean = new THREE.Mesh(oceanGeo, oceanMat);
       ocean.position.y = 0.0;
       scene.add(ocean);
 
-      // ---------- Controls ----------
       let paused = false;
+
+      function applyWindHeight(){
+        oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
+        oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+      }
 
       function applyLighting(l){
         const t = THREE.MathUtils.clamp(l, 0, 1);
 
-        const elev = THREE.MathUtils.lerp(0.18, 0.72, t);
-        const azim = THREE.MathUtils.lerp(0.10, 0.58, t);
+        key.intensity = THREE.MathUtils.lerp(0.55, 1.05, t);
+        fill.intensity = THREE.MathUtils.lerp(0.14, 0.32, t);
+        ambient.intensity = THREE.MathUtils.lerp(0.09, 0.16, t);
+
+        const elev = THREE.MathUtils.lerp(0.18, 0.55, t);
+        const azim = 0.33;
         const r = 120.0;
-
-        const x = Math.cos(azim) * r;
-        const z = Math.sin(azim) * r;
-        const y = THREE.MathUtils.lerp(14.0, 78.0, elev);
-
-        key.position.set(x, y, z);
-        key.intensity = THREE.MathUtils.lerp(0.18, 1.35, t);
-        ambient.intensity = THREE.MathUtils.lerp(0.04, 0.12, t);
+        key.position.set(Math.cos(azim)*r, THREE.MathUtils.lerp(18, 70, elev), Math.sin(azim)*r);
 
         oceanMat.uniforms.uLight.value = t;
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.92, 1.06, t);
-      }
-
-      function applyWindAndHeight(){
-        oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
-        oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+        oceanMat.uniforms.uKeyDir.value.copy(key.position).normalize();
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.92, 1.05, t);
       }
 
       ui.resetBtn.addEventListener("click", () => {
@@ -689,13 +589,13 @@
         ui.height.value = "1.0";
         ui.light.value = "0.62";
         syncLabels();
-        applyWindAndHeight();
+        applyWindHeight();
         applyLighting(parseFloat(ui.light.value));
 
-        orbit.target.set(0, 0.55, 30.0);
-        orbit.radius = 28;
-        orbit.yaw = 0.0;
-        orbit.pitch = 0.14;
+        orbit.target.set(0, 0.6, 0);
+        orbit.radius = 22;
+        orbit.yaw = 1.05;
+        orbit.pitch = 0.18;
         updateCamera();
       });
 
@@ -713,8 +613,8 @@
       }
       ui.fsBtn.addEventListener("click", toggleFullscreen);
 
-      ui.wind.addEventListener("input", applyWindAndHeight);
-      ui.height.addEventListener("input", applyWindAndHeight);
+      ui.wind.addEventListener("input", applyWindHeight);
+      ui.height.addEventListener("input", applyWindHeight);
       ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
 
       window.addEventListener("keydown", (e) => {
@@ -728,11 +628,9 @@
         }
       });
 
-      // init
-      applyWindAndHeight();
+      applyWindHeight();
       applyLighting(parseFloat(ui.light.value));
 
-      // ---------- Loop ----------
       const clock = new THREE.Clock();
       let grainAcc = 0;
 
@@ -740,9 +638,7 @@
         requestAnimationFrame(tick);
 
         const dt = clock.getDelta();
-        if (!paused){
-          oceanMat.uniforms.uTime.value += dt;
-        }
+        if (!paused) oceanMat.uniforms.uTime.value += dt;
 
         oceanMat.uniforms.uCamPos.value.copy(camera.position);
         oceanMat.uniforms.uKeyDir.value.copy(key.position).normalize();
@@ -750,14 +646,13 @@
         renderer.render(scene, camera);
 
         grainAcc += dt;
-        if (grainAcc > 0.05){
+        if (grainAcc > 0.06){
           drawGrain();
           grainAcc = 0;
         }
       }
       tick();
 
-      // ---------- Resize ----------
       function onResize(){
         renderer.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
