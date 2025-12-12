@@ -17,7 +17,7 @@
     #app { position: fixed; inset: 0; }
     canvas { display:block; width:100%; height:100%; }
 
-    /* Cinematic overlays */
+    /* Cinematic overlays (vignette + soft spotlight) */
     .fx {
       position: fixed;
       inset: 0;
@@ -29,13 +29,13 @@
       mix-blend-mode: multiply;
     }
 
-    /* Grain */
+    /* Grain canvas (subtle film grain) */
     #grain {
       position: fixed;
       inset: 0;
       pointer-events: none;
       z-index: 9;
-      opacity: 0.10;
+      opacity: 0.08;
       mix-blend-mode: overlay;
     }
 
@@ -211,65 +211,49 @@
         return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
       }catch(_){ return false; }
     }
-
-    async function importFirst(urls){
+    async function loadThree(){
+      const candidates = [
+        "./vendor/three.module.js",
+        "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      ];
       let lastErr = null;
-      for (const u of urls){
-        try { return await import(u); }
+      for (const url of candidates){
+        try{ return await import(url); }
         catch(e){ lastErr = e; }
       }
-      throw lastErr || new Error("Import failed");
+      throw new Error("Failed to load Three.js. Last error: " + (lastErr?.message || lastErr));
     }
 
-    // Grain (fast): draw small tile and scale
+    // --- Grain ---
     const grain = document.getElementById("grain");
     const gctx = grain.getContext("2d", { alpha: true });
-    const tile = document.createElement("canvas");
-    tile.width = 220; tile.height = 220;
-    const tctx = tile.getContext("2d", { alpha: true });
-    let grainPattern = null;
-
-    function regenTile(){
-      const img = tctx.createImageData(tile.width, tile.height);
-      const d = img.data;
-      for (let i = 0; i < d.length; i += 4){
-        const v = (Math.random() * 255) | 0;
-        d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
-      }
-      tctx.putImageData(img, 0, 0);
-      grainPattern = gctx.createPattern(tile, "repeat");
-    }
-
     function resizeGrain(){
       grain.width = Math.floor(window.innerWidth);
       grain.height = Math.floor(window.innerHeight);
     }
-    function drawGrain(time){
-      if (!grainPattern) return;
-      gctx.clearRect(0,0,grain.width,grain.height);
-      gctx.globalAlpha = 0.26;
-      gctx.setTransform(1,0,0,1, (time*0.9)%tile.width, (time*0.6)%tile.height);
-      gctx.fillStyle = grainPattern;
-      gctx.fillRect(-tile.width, -tile.height, grain.width + tile.width*2, grain.height + tile.height*2);
-      gctx.setTransform(1,0,0,1,0,0);
+    resizeGrain();
+
+    function drawGrain(){
+      const w = grain.width, h = grain.height;
+      const img = gctx.createImageData(w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 16){
+        const v = (Math.random() * 255) | 0;
+        d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+      }
+      gctx.putImageData(img, 0, 0);
+      gctx.globalAlpha = 0.30;
+      gctx.fillStyle = "rgba(0,0,0,0.0)";
+      gctx.fillRect(0, 0, w, h);
       gctx.globalAlpha = 1.0;
     }
 
     try{
       if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration.");
 
-      // Correct ESM imports (no fake vendor files)
-      const THREE = await importFirst([
-        "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
-        "https://unpkg.com/three@0.164.1/build/three.module.js",
-      ]);
+      const THREE = await loadThree();
 
-      const { OrbitControls } = await importFirst([
-        "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/controls/OrbitControls.js",
-        "https://unpkg.com/three@0.164.1/examples/jsm/controls/OrbitControls.js",
-      ]);
-
-      // UI
+      // ---------- UI ----------
       const ui = {
         wind: document.getElementById("wind"),
         height: document.getElementById("height"),
@@ -281,6 +265,7 @@
         pauseBtn: document.getElementById("pauseBtn"),
         fsBtn: document.getElementById("fsBtn"),
       };
+
       function syncLabels(){
         ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
         ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
@@ -293,7 +278,7 @@
       });
       syncLabels();
 
-      // Renderer
+      // ---------- Renderer ----------
       const app = document.getElementById("app");
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
@@ -303,36 +288,78 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.05;
+      renderer.toneMappingExposure = 1.02;
       app.appendChild(renderer.domElement);
 
-      // Scene / Camera
       const scene = new THREE.Scene();
-      const fogColor = new THREE.Color(0x07111d);
-      scene.fog = new THREE.FogExp2(fogColor, 0.0036);
+      scene.fog = new THREE.FogExp2(0x07111d, 0.0045);
 
-      const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 6000);
-      camera.position.set(18, 3.4, 14);
+      // Low camera (cinematic)
+      const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.05, 4000);
 
-      const controls = new OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.06;
-      controls.enablePan = false;
-      controls.minDistance = 8;
-      controls.maxDistance = 90;
-      controls.minPolarAngle = 0.08;
-      controls.maxPolarAngle = Math.PI * 0.46;
-      controls.target.set(0, 0.7, 0);
+      // ---------- Minimal orbit ----------
+      const orbit = {
+        target: new THREE.Vector3(0, 0.8, 0),
+        radius: 24,
+        yaw: 1.02,
+        pitch: 0.20,
+        minRadius: 10,
+        maxRadius: 80,
+        minPitch: 0.06,
+        maxPitch: Math.PI * 0.40,
+        dragging: false,
+        lastX: 0,
+        lastY: 0,
+        speed: 0.0070
+      };
+      function updateCamera(){
+        const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+        const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
+        const x = orbit.radius * cp * cy;
+        const z = orbit.radius * cp * sy;
+        const y = orbit.radius * sp;
+        camera.position.set(orbit.target.x + x, orbit.target.y + y, orbit.target.z + z);
+        camera.lookAt(orbit.target);
+      }
+      updateCamera();
 
-      // Lighting
-      const ambient = new THREE.AmbientLight(0xbad7ff, 0.22);
+      renderer.domElement.style.touchAction = "none";
+      renderer.domElement.addEventListener("pointerdown", (e) => {
+        orbit.dragging = true;
+        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
+        renderer.domElement.setPointerCapture(e.pointerId);
+      });
+      renderer.domElement.addEventListener("pointermove", (e) => {
+        if (!orbit.dragging) return;
+        const dx = e.clientX - orbit.lastX;
+        const dy = e.clientY - orbit.lastY;
+        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
+
+        orbit.yaw   -= dx * orbit.speed;
+        orbit.pitch -= dy * orbit.speed;
+        orbit.pitch = Math.max(orbit.minPitch, Math.min(orbit.maxPitch, orbit.pitch));
+        updateCamera();
+      });
+      renderer.domElement.addEventListener("pointerup", (e) => {
+        orbit.dragging = false;
+        try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch(_){}
+      });
+      renderer.domElement.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const s = (e.deltaY > 0) ? 1.06 : 0.94;
+        orbit.radius = Math.max(orbit.minRadius, Math.min(orbit.maxRadius, orbit.radius * s));
+        updateCamera();
+      }, { passive: false });
+
+      // ---------- Lighting ----------
+      const ambient = new THREE.AmbientLight(0xbad7ff, 0.20);
       scene.add(ambient);
 
       const sun = new THREE.DirectionalLight(0xffffff, 1.25);
-      sun.position.set(55, 65, 8);
+      sun.position.set(40, 60, 10);
       scene.add(sun);
 
-      // Sky dome with sun glow
+      // ---------- Sky (layered + stars + moon) ----------
       const skyGeo = new THREE.SphereGeometry(2400, 32, 18);
       const skyMat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
@@ -341,7 +368,11 @@
           uMid:    { value: new THREE.Color(0x0a2238) },
           uBottom: { value: new THREE.Color(0x07111d) },
           uSunDir: { value: new THREE.Vector3().copy(sun.position).normalize() },
+          uMoonDir:{ value: new THREE.Vector3(-0.25, 0.72, -0.64).normalize() },
           uLight:  { value: parseFloat(ui.light.value) },
+          uTime:   { value: 0.0 },
+          uStarAmount: { value: 0.65 },
+          uMoonSize:   { value: 0.060 },
         },
         vertexShader: `
           varying vec3 vDir;
@@ -355,36 +386,69 @@
           varying vec3 vDir;
           uniform vec3 uTop, uMid, uBottom;
           uniform vec3 uSunDir;
+          uniform vec3 uMoonDir;
           uniform float uLight;
+          uniform float uTime;
+          uniform float uStarAmount;
+          uniform float uMoonSize;
+
+          float hash31(vec3 p){
+            p = fract(p * 0.1031);
+            p += dot(p, p.yzx + 33.33);
+            return fract((p.x + p.y) * p.z);
+          }
 
           void main(){
-            float h = vDir.y * 0.5 + 0.5;
-            vec3 col = mix(uBottom, uMid, smoothstep(0.00, 0.60, h));
-            col = mix(col, uTop, smoothstep(0.30, 1.00, h));
+            vec3 dir = normalize(vDir);
+            float h = dir.y * 0.5 + 0.5;
 
-            // Sun glow
-            float sunDot = max(dot(normalize(vDir), normalize(uSunDir)), 0.0);
-            float glow = pow(sunDot, 180.0) * (0.8 + 0.8*uLight);
-            float halo = pow(sunDot, 28.0) * (0.12 + 0.25*uLight);
-            col += vec3(1.0, 0.98, 0.92) * (glow + halo);
+            vec3 col = mix(uBottom, uMid, smoothstep(0.00, 0.62, h));
+            col = mix(col, uTop, smoothstep(0.28, 1.00, h));
 
-            // Subtle haze lift
-            col += vec3(0.02,0.03,0.04) * (uLight*0.9);
+            float haze = smoothstep(0.00, 0.22, h) * (1.0 - smoothstep(0.30, 0.52, h));
+            col += vec3(0.05, 0.07, 0.09) * haze * (0.35 + 0.45*uLight);
+
+            float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
+            float sunGlow = pow(sunDot, 180.0) * (0.65 + 0.85*uLight);
+            float sunHalo = pow(sunDot, 28.0)  * (0.08 + 0.25*uLight);
+            col += vec3(1.0, 0.98, 0.92) * (sunGlow + sunHalo);
+
+            float night = smoothstep(0.85, 0.15, uLight);
+
+            float upper = smoothstep(0.10, 0.55, h);
+            vec3 sp = dir * 420.0;
+            float n = hash31(floor(sp));
+            float star = smoothstep(0.9945, 0.9999, n) * upper;
+            float tw = 0.75 + 0.25*sin(uTime*1.7 + n*12.0);
+            vec3 starCol = vec3(0.95, 0.98, 1.0) * star * tw;
+
+            float moonDot = dot(dir, normalize(uMoonDir));
+            float ang = acos(clamp(moonDot, -1.0, 1.0));
+            float moonDisc = 1.0 - smoothstep(uMoonSize*0.92, uMoonSize*1.02, ang);
+            float moonHalo = exp(-ang*ang/(uMoonSize*uMoonSize*6.0)) * 0.45;
+
+            float mTex = 0.65 + 0.35*hash31(dir*910.0);
+            vec3 moonColor = vec3(0.95, 0.97, 1.00) * (0.75 + 0.25*mTex);
+
+            col += (starCol * uStarAmount) * night;
+            col += moonColor * moonDisc * night;
+            col += vec3(0.75, 0.86, 1.0) * moonHalo * night;
+
+            col += vec3(0.01,0.015,0.02) * (0.2 + 0.7*uLight);
+
             gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
           }
         `
       });
-      const sky = new THREE.Mesh(skyGeo, skyMat);
-      scene.add(sky);
+      scene.add(new THREE.Mesh(skyGeo, skyMat));
 
-      // Ocean shader (geometry waves + fragment micro normal detail)
-      const oceanSize = 1400;
-      const segments = isMobile ? 240 : 420;
+      // ---------- Ocean ----------
+      const oceanSize = 900;
+      const segments = isMobile ? 220 : 360;
       const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
       oceanGeo.rotateX(-Math.PI/2);
 
       const oceanMat = new THREE.ShaderMaterial({
-        transparent: false,
         uniforms: {
           uTime:   { value: 0 },
           uWind:   { value: parseFloat(ui.wind.value) },
@@ -392,25 +456,35 @@
           uLight:  { value: parseFloat(ui.light.value) },
           uSunDir: { value: new THREE.Vector3().copy(sun.position).normalize() },
           uCamPos: { value: new THREE.Vector3() },
-          uFogColor: { value: fogColor },
-          uFogDensity: { value: 0.0036 },
+          uFogColor: { value: new THREE.Color(0x07111d) },
+          uFogDensity: { value: 0.0045 },
+          uNormalStrength: { value: 10.0 },
         },
         vertexShader: `
           precision highp float;
+
           uniform float uTime;
           uniform float uWind;
           uniform float uHeight;
+          uniform float uNormalStrength;
 
           varying vec3 vWorldPos;
-          varying vec2 vXZ;
+          varying vec3 vNormal;
 
-          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed){
+          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
             float t = uTime * speed;
             float phase = freq * dot(dir, xz) + t;
             float s = sin(phase);
             float c = cos(phase);
+
             float qa = steep * amp;
-            return vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+
+            nAcc.x += -dir.x * qa * freq * s;
+            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.12;
+            nAcc.z += -dir.y * qa * freq * s;
+
+            return disp;
           }
 
           void main(){
@@ -420,26 +494,37 @@
             float wind = max(uWind, 0.0);
             float H = uHeight;
 
-            vec2 wdir = normalize(vec2(1.0, 0.32));
+            vec2 wdir = normalize(vec2(1.0, 0.35));
             vec2 d1 = normalize(wdir + vec2( 0.18, -0.06));
             vec2 d2 = normalize(wdir + vec2(-0.10,  0.14));
             vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
-            vec2 d4 = normalize(wdir + vec2(-0.24, -0.05));
+            vec2 d4 = normalize(wdir + vec2(-0.22, -0.05));
+            vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
 
-            float w = 0.11 + wind * 0.018;
+            float w = 0.12 + wind * 0.018;
 
-            // Keep geometry waves medium frequency (detail will be in fragment normals)
+            vec3 nAcc = vec3(0.0, 1.0, 0.0);
             vec3 disp = vec3(0.0);
-            disp += gerstner(xz, d1, 0.62, 0.95*H, 0.040, 1.00*w);
-            disp += gerstner(xz, d2, 0.48, 0.55*H, 0.070, 1.35*w);
-            disp += gerstner(xz, d3, 0.36, 0.28*H, 0.120, 1.85*w);
-            disp += gerstner(xz, d4, 0.25, 0.16*H, 0.190, 2.35*w);
+
+            disp += gerstner(xz, d1, 0.60, 0.95*H, 0.040, 1.00*w, nAcc);
+            disp += gerstner(xz, d2, 0.50, 0.62*H, 0.070, 1.35*w, nAcc);
+            disp += gerstner(xz, d3, 0.38, 0.34*H, 0.120, 1.85*w, nAcc);
+            disp += gerstner(xz, d4, 0.28, 0.20*H, 0.180, 2.35*w, nAcc);
+            disp += gerstner(xz, d5, 0.20, 0.12*H, 0.280, 3.00*w, nAcc);
+
+            float rt = uTime * (1.2 + wind*0.02);
+            float r1 = sin( (xz.x*1.40 + xz.y*1.10)*0.9 + rt*2.2 );
+            float r2 = sin( (xz.x*2.10 - xz.y*1.60)*1.1 + rt*1.8 );
+            float micro = (r1*0.10 + r2*0.08) * (0.25 + 0.02*wind) * (0.35 + 0.45*H);
+            disp.y += micro;
 
             pos += disp;
 
+            nAcc.xz *= uNormalStrength;
+            vNormal = normalize(nAcc);
+
             vec4 wp = modelMatrix * vec4(pos, 1.0);
             vWorldPos = wp.xyz;
-            vXZ = wp.xz;
 
             gl_Position = projectionMatrix * viewMatrix * wp;
           }
@@ -447,9 +532,6 @@
         fragmentShader: `
           precision highp float;
 
-          uniform float uTime;
-          uniform float uWind;
-          uniform float uHeight;
           uniform float uLight;
           uniform vec3 uSunDir;
           uniform vec3 uCamPos;
@@ -457,171 +539,47 @@
           uniform float uFogDensity;
 
           varying vec3 vWorldPos;
-          varying vec2 vXZ;
+          varying vec3 vNormal;
 
-          // Hash / noise
-          float hash21(vec2 p){
-            p = fract(p*vec2(123.34, 345.45));
-            p += dot(p, p+34.345);
-            return fract(p.x*p.y);
-          }
-          float noise(vec2 p){
-            vec2 i = floor(p);
-            vec2 f = fract(p);
-            float a = hash21(i);
-            float b = hash21(i+vec2(1,0));
-            float c = hash21(i+vec2(0,1));
-            float d = hash21(i+vec2(1,1));
-            vec2 u = f*f*(3.0-2.0*f);
-            return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
-          }
-          float fbm(vec2 p){
-            float v = 0.0;
-            float a = 0.5;
-            mat2 m = mat2(1.6,1.2,-1.2,1.6);
-            for(int i=0;i<5;i++){
-              v += a * noise(p);
-              p = m*p;
-              a *= 0.55;
-            }
-            return v;
-          }
-
-          // Height field for micro ripples (fragment detail)
-          float rippleHeight(vec2 xz){
-            float wind = max(uWind,0.0);
-            float H = uHeight;
-            float t = uTime * (0.35 + 0.02*wind);
-
-            // directional ripples + fbm
-            vec2 dir = normalize(vec2(1.0,0.32));
-            float a = 0.06 + 0.010*wind;
-            float f1 = fbm(xz*0.18 + dir* t*2.2);
-            float f2 = fbm(xz*0.42 - dir* t*3.0);
-            float f3 = fbm(xz*0.95 + vec2(t*1.7, -t*1.1));
-
-            float rip = (f1*0.60 + f2*0.30 + f3*0.22) - 0.55;
-            rip *= a * (0.55 + 0.55*H);
-
-            // extra sparkle ripples
-            float s1 = sin((xz.x*1.8 + xz.y*1.2)*0.9 + t*6.0);
-            float s2 = sin((xz.x*2.4 - xz.y*1.9)*1.1 + t*4.5);
-            rip += (s1*0.010 + s2*0.008) * (0.5 + 0.03*wind);
-
-            return rip;
-          }
-
-          vec3 normalFromHeight(vec2 xz){
-            // screen-space stable epsilon
-            float e = 0.35;
-            float hL = rippleHeight(xz - vec2(e,0));
-            float hR = rippleHeight(xz + vec2(e,0));
-            float hD = rippleHeight(xz - vec2(0,e));
-            float hU = rippleHeight(xz + vec2(0,e));
-
-            // gradient
-            vec3 n = normalize(vec3(-(hR-hL), 2.0*e, -(hU-hD)));
-            return n;
-          }
-
-          // GGX BRDF (simple)
-          float D_GGX(float NoH, float a){
-            float a2 = a*a;
-            float d = (NoH*NoH)*(a2-1.0)+1.0;
-            return a2 / (3.14159 * d*d);
-          }
-          float G_SchlickGGX(float NoV, float k){
-            return NoV / (NoV*(1.0-k)+k);
-          }
-          float G_Smith(float NoV, float NoL, float k){
-            return G_SchlickGGX(NoV,k)*G_SchlickGGX(NoL,k);
-          }
-          vec3 F_Schlick(vec3 F0, float VoH){
-            return F0 + (1.0-F0)*pow(1.0-VoH,5.0);
+          float fresnelSchlick(float cosTheta, float F0){
+            return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
           }
 
           void main(){
+            vec3 N = normalize(vNormal);
             vec3 V = normalize(uCamPos - vWorldPos);
-
-            // Base geometric normal (mostly up), plus micro normal detail
-            vec3 Ng = vec3(0.0, 1.0, 0.0);
-            vec3 Nm = normalFromHeight(vXZ);
-
-            // Blend strength depends on wind/height (more wind => more micro detail)
-            float wind = max(uWind,0.0);
-            float H = uHeight;
-            float microStr = clamp(0.55 + 0.02*wind + 0.18*H, 0.55, 1.25);
-            vec3 N = normalize(mix(Ng, Nm, microStr));
-
             vec3 L = normalize(uSunDir);
-            vec3 Hn = normalize(L + V);
 
-            float NoV = max(dot(N, V), 0.001);
-            float NoL = max(dot(N, L), 0.0);
-            float NoH = max(dot(N, Hn), 0.0);
-            float VoH = max(dot(V, Hn), 0.0);
-
-            // Water absorption colors (deep vs shallow)
-            vec3 deep = vec3(0.01, 0.06, 0.11);
+            vec3 deep = vec3(0.02, 0.08, 0.14);
             vec3 shallow = vec3(0.05, 0.16, 0.20);
+            float depthHint = clamp((vWorldPos.y + 1.8) * 0.10, 0.0, 1.0);
+            vec3 baseCol = mix(deep, shallow, depthHint);
 
-            // distance/haze gives "depth" cue
-            float dist = length(uCamPos - vWorldPos);
-            float depthHint = clamp(1.0 - exp(-dist*0.018), 0.0, 1.0);
-            vec3 baseCol = mix(shallow, deep, depthHint);
+            float skyMix = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
+            vec3 skyCol = mix(vec3(0.02,0.06,0.10), vec3(0.14,0.24,0.34), pow(skyMix, 1.1));
 
-            // Sky reflection approx (based on reflected view direction)
-            vec3 R = reflect(-V, N);
-            float skyMix = clamp(R.y*0.5+0.5, 0.0, 1.0);
-            vec3 skyCol = mix(vec3(0.02,0.06,0.10), vec3(0.14,0.26,0.36), pow(skyMix, 1.2));
+            vec3 H = normalize(L + V);
+            float ndl = max(dot(N, L), 0.0);
+            float ndh = max(dot(N, H), 0.0);
 
-            // Fresnel
-            vec3 F0 = vec3(0.02);
-            vec3 F = F_Schlick(F0, VoH);
+            float rough = mix(0.085, 0.045, uLight);
+            float specPow = mix(110.0, 320.0, 1.0 - rough);
+            float spec = pow(ndh, specPow) * (0.20 + uLight * 1.10);
 
-            // Roughness responds to wind (stormy => rougher => broader highlight)
-            float rough = clamp(mix(0.040, 0.12, wind/30.0), 0.035, 0.14);
-            rough = mix(rough, rough*0.72, uLight); // brighter lighting slightly sharper
-            float a = rough*rough;
+            float cosTheta = clamp(dot(N, V), 0.0, 1.0);
+            float F = fresnelSchlick(cosTheta, 0.02);
 
-            float D = D_GGX(NoH, a);
-            float k = (rough+1.0); k = (k*k)/8.0;
-            float G = G_Smith(NoV, NoL, k);
-
-            vec3 spec = (D*G*F) / max(4.0*NoV*NoL, 0.001);
-
-            // Sun glint enhancer for sparkle
-            float glint = pow(max(dot(R, L), 0.0), mix(90.0, 240.0, 1.0-rough));
-            glint *= (0.15 + 0.85*uLight);
-
-            // Foam: from slope + noise
-            float slope = 1.0 - N.y;
-            float foamN = fbm(vXZ*0.18 + uTime*0.45);
-            float foam = smoothstep(0.22, 0.55, slope + foamN*0.35) * (0.10 + 0.25*H);
-
-            // Final shading
             vec3 col = baseCol;
+            col = mix(col, skyCol, F * (0.55 + 0.25*uLight));
+            col += vec3(1.0, 0.97, 0.90) * spec * ndl;
 
-            // diffuse-ish (very small, mostly spec/reflect for water)
-            col += baseCol * (0.04 + 0.06*uLight) * NoL;
+            float foam = smoothstep(0.60, 0.94, 1.0 - N.y);
+            col = mix(col, vec3(0.85, 0.93, 1.00), foam * 0.18);
 
-            // reflection (Fresnel)
-            col = mix(col, skyCol, clamp(F.x*0.85, 0.0, 1.0));
-
-            // spec highlight
-            col += spec * (0.75 + 1.15*uLight) * NoL;
-
-            // glint sparkle
-            col += vec3(1.0, 0.97, 0.90) * glint * (0.08 + 0.18*H);
-
-            // foam tint
-            col = mix(col, vec3(0.84,0.93,1.0), foam);
-
-            // cinematic contrast
             col = pow(col, vec3(0.92));
 
-            // fog (smooth horizon blend)
-            float fog = 1.0 - exp(-uFogDensity*uFogDensity*dist*dist);
+            float dist = length(uCamPos - vWorldPos);
+            float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
             col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
 
             gl_FragColor = vec4(col, 1.0);
@@ -633,42 +591,50 @@
       ocean.position.y = 0.0;
       scene.add(ocean);
 
-      // Keep ocean centered around camera for "infinite" feel
-      function centerOcean(){
-        ocean.position.x = camera.position.x;
-        ocean.position.z = camera.position.z;
-      }
-
-      // hooks
+      // ---------- Controls / UI hooks ----------
       let paused = false;
 
       function applyLighting(l){
         const t = THREE.MathUtils.clamp(l, 0, 1);
 
-        // sun elevation/brightness
-        const elev = THREE.MathUtils.lerp(0.10, 0.82, t);
-        const azim = 0.30;
-        const r = 140.0;
+        const elev = THREE.MathUtils.lerp(0.12, 0.78, t);
+        const azim = 0.35;
+        const r = 120.0;
         const x = Math.cos(azim) * r;
         const z = Math.sin(azim) * r;
-        const y = THREE.MathUtils.lerp(12, 92, elev);
+        const y = THREE.MathUtils.lerp(14, 78, elev);
 
         sun.position.set(x, y, z);
-        sun.intensity = THREE.MathUtils.lerp(0.70, 1.55, t);
-        ambient.intensity = THREE.MathUtils.lerp(0.18, 0.32, t);
+        sun.intensity = THREE.MathUtils.lerp(0.75, 1.45, t);
+        ambient.intensity = THREE.MathUtils.lerp(0.16, 0.30, t);
 
-        skyMat.uniforms.uSunDir.value.copy(sun.position).normalize();
+        const top = new THREE.Color().setHSL(0.58, 0.52, THREE.MathUtils.lerp(0.18, 0.32, t));
+        const mid = new THREE.Color().setHSL(0.56, 0.48, THREE.MathUtils.lerp(0.11, 0.26, t));
+        const bottom = new THREE.Color().setHSL(0.60, 0.66, THREE.MathUtils.lerp(0.05, 0.10, t));
+        skyMat.uniforms.uTop.value.copy(top);
+        skyMat.uniforms.uMid.value.copy(mid);
+        skyMat.uniforms.uBottom.value.copy(bottom);
         skyMat.uniforms.uLight.value = t;
 
-        oceanMat.uniforms.uLight.value = t;
-        oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
+        const sdir = new THREE.Vector3().copy(sun.position).normalize();
+        skyMat.uniforms.uSunDir.value.copy(sdir);
 
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.95, 1.12, t);
+        const moonDir = sdir.clone().multiplyScalar(-1.0).add(new THREE.Vector3(-0.12, 0.18, -0.06)).normalize();
+        skyMat.uniforms.uMoonDir.value.copy(moonDir);
+
+        oceanMat.uniforms.uLight.value = t;
+        oceanMat.uniforms.uSunDir.value.copy(sdir);
+
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.95, 1.08, t);
       }
 
       function applyWindAndHeight(){
         oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
         oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+
+        const wind = parseFloat(ui.wind.value);
+        const h = parseFloat(ui.height.value);
+        oceanMat.uniforms.uNormalStrength.value = 8.0 + wind*0.15 + h*1.2;
       }
 
       ui.resetBtn.addEventListener("click", () => {
@@ -679,9 +645,11 @@
         applyWindAndHeight();
         applyLighting(parseFloat(ui.light.value));
 
-        controls.target.set(0, 0.7, 0);
-        camera.position.set(18, 3.4, 14);
-        controls.update();
+        orbit.target.set(0, 0.8, 0);
+        orbit.radius = 24;
+        orbit.yaw = 1.02;
+        orbit.pitch = 0.20;
+        updateCamera();
       });
 
       ui.pauseBtn.addEventListener("click", () => {
@@ -716,12 +684,10 @@
       // init
       applyWindAndHeight();
       applyLighting(parseFloat(ui.light.value));
-      resizeGrain(); regenTile();
 
-      // loop
+      // ---------- Loop ----------
       const clock = new THREE.Clock();
       let grainAcc = 0;
-
       function tick(){
         requestAnimationFrame(tick);
 
@@ -729,23 +695,21 @@
         if (!paused) oceanMat.uniforms.uTime.value += dt;
 
         oceanMat.uniforms.uCamPos.value.copy(camera.position);
-        oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
 
-        controls.update();
-        centerOcean();
+        // drive sky time (twinkle)
+        skyMat.uniforms.uTime.value = oceanMat.uniforms.uTime.value;
 
         renderer.render(scene, camera);
 
         grainAcc += dt;
-        if (grainAcc > 0.08){
-          regenTile();
+        if (grainAcc > 0.05){
+          drawGrain();
           grainAcc = 0;
         }
-        drawGrain(performance.now()*0.001);
       }
       tick();
 
-      // resize
+      // ---------- Resize ----------
       function onResize(){
         renderer.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
