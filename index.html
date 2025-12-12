@@ -6,22 +6,47 @@
   <title>Ocean Wave Simulation</title>
   <style>
     :root{
-      --panel-bg: rgba(18, 28, 40, 0.55);
+      --panel-bg: rgba(18, 28, 40, 0.58);
       --panel-border: rgba(255,255,255,0.14);
       --text: rgba(235, 245, 255, 0.92);
       --muted: rgba(235, 245, 255, 0.70);
       --shadow: 0 18px 55px rgba(0,0,0,0.35);
       --radius: 18px;
     }
-    html, body { height: 100%; margin: 0; background: #07111d; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
+    html, body { height:100%; margin:0; background:#07111d; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
     #app { position: fixed; inset: 0; }
     canvas { display:block; width:100%; height:100%; }
 
+    /* Cinematic overlays (vignette + soft spotlight) */
+    .fx {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 8;
+      /* Vignette + spotlight */
+      background:
+        radial-gradient(circle at 62% 38%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.06) 18%, rgba(0,0,0,0.00) 42%),
+        radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00) 36%, rgba(0,0,0,0.55) 76%, rgba(0,0,0,0.86) 100%);
+      filter: blur(0px);
+      mix-blend-mode: multiply;
+    }
+
+    /* Grain canvas (subtle film grain) */
+    #grain {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9;
+      opacity: 0.08;
+      mix-blend-mode: overlay;
+    }
+
+    /* HUD */
     .hud {
       position: fixed;
       left: 18px;
       top: 18px;
-      width: min(360px, calc(100vw - 36px));
+      width: min(380px, calc(100vw - 36px));
       padding: 16px 16px 14px;
       border-radius: var(--radius);
       background: var(--panel-bg);
@@ -33,15 +58,29 @@
       user-select: none;
       z-index: 10;
     }
-    .title {
-      display:flex; align-items:baseline; justify-content:space-between;
-      gap: 10px; margin-bottom: 12px;
+    .title { display:flex; align-items:center; justify-content:space-between; gap: 10px; margin-bottom: 8px; }
+    .title h1 { font-size: 15px; letter-spacing: 0.2px; margin:0; font-weight: 650; }
+    .badges { display:flex; gap: 8px; align-items:center; }
+    .badge {
+      font-size: 11px; color: rgba(235,245,255,0.75);
+      padding: 4px 10px; border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.04);
     }
-    .title h1 { font-size: 16px; letter-spacing: 0.2px; margin:0; font-weight: 650; }
-    .badge { font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--panel-border); }
+    .badge.live{
+      border-color: rgba(120, 255, 200, 0.22);
+      background: rgba(120, 255, 200, 0.08);
+      color: rgba(200, 255, 235, 0.90);
+    }
+    .desc {
+      font-size: 11px;
+      color: rgba(235,245,255,0.70);
+      line-height: 1.35;
+      margin-bottom: 10px;
+    }
 
     .row { display:flex; gap: 12px; align-items:center; margin: 10px 0; }
-    .row label { flex: 0 0 96px; font-size: 12px; color: var(--muted); }
+    .row label { flex: 0 0 92px; font-size: 12px; color: var(--muted); }
     .row input[type="range"] { flex: 1; accent-color: rgb(120, 210, 255); }
     .val { flex: 0 0 58px; text-align:right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text); }
 
@@ -49,10 +88,10 @@
     button {
       flex: 1;
       border-radius: 12px;
-      border: 1px solid var(--panel-border);
+      border: 1px solid rgba(255,255,255,0.14);
       background: rgba(255,255,255,0.06);
       color: var(--text);
-      padding: 10px 12px;
+      padding: 9px 12px;
       font-size: 12px;
       cursor: pointer;
       transition: transform 120ms ease, background 120ms ease;
@@ -63,7 +102,7 @@
     .hint {
       margin-top: 10px;
       font-size: 11px;
-      color: var(--muted);
+      color: rgba(235,245,255,0.62);
       line-height: 1.35;
     }
     .hint kbd{
@@ -71,39 +110,19 @@
       font-size: 10px;
       padding: 2px 6px;
       border-radius: 7px;
-      border: 1px solid var(--panel-border);
+      border: 1px solid rgba(255,255,255,0.14);
       background: rgba(255,255,255,0.05);
-      color: var(--text);
-    }
-
-    .footer {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(18, 28, 40, 0.45);
-      border: 1px solid rgba(255,255,255,0.10);
-      color: rgba(235, 245, 255, 0.68);
-      box-shadow: 0 14px 42px rgba(0,0,0,0.30);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      font-size: 11px;
-      user-select: none;
-      z-index: 10;
+      color: rgba(235,245,255,0.90);
     }
 
     /* Error overlay */
     .overlay {
-      position: fixed;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
+      position: fixed; inset: 0;
+      display: none; align-items: center; justify-content: center;
       padding: 22px;
       background: rgba(7, 17, 29, 0.92);
       color: rgba(235, 245, 255, 0.92);
-      z-index: 50;
+      z-index: 60;
     }
     .overlay .card {
       width: min(860px, 100%);
@@ -128,42 +147,49 @@
 
 <body>
   <div id="app"></div>
+  <div class="fx"></div>
+  <canvas id="grain"></canvas>
 
   <div class="hud" aria-label="Ocean Wave Simulation Controls">
     <div class="title">
       <h1>Ocean Wave Simulation</h1>
-      <div class="badge">calm mode</div>
+      <div class="badges">
+        <div class="badge live">Live</div>
+      </div>
+    </div>
+
+    <div class="desc">
+      Procedural ocean surface with real-time lighting. Adjust the elements below for a calmer or stormier sea.
     </div>
 
     <div class="row">
       <label for="wind">Wind speed</label>
-      <input id="wind" type="range" min="0" max="30" step="0.1" value="10" />
-      <div class="val" id="windVal">10.0</div>
+      <input id="wind" type="range" min="0" max="30" step="0.1" value="12" />
+      <div class="val" id="windVal">1.20×</div>
     </div>
 
     <div class="row">
       <label for="height">Wave height</label>
       <input id="height" type="range" min="0" max="3" step="0.01" value="1.0" />
-      <div class="val" id="heightVal">1.00</div>
+      <div class="val" id="heightVal">1.00×</div>
     </div>
 
     <div class="row">
       <label for="light">Lighting</label>
-      <input id="light" type="range" min="0" max="1" step="0.001" value="0.55" />
-      <div class="val" id="lightVal">0.55</div>
+      <input id="light" type="range" min="0" max="1" step="0.001" value="0.62" />
+      <div class="val" id="lightVal">62%</div>
     </div>
 
     <div class="buttons">
       <button id="resetBtn" type="button">Reset</button>
       <button id="pauseBtn" type="button">Pause</button>
+      <button id="fsBtn" type="button">Fullscreen</button>
     </div>
 
     <div class="hint">
-      Drag to look around. Wheel to zoom. Press <kbd>R</kbd> to reset view, <kbd>Space</kbd> to pause.
+      Drag to look around. Press <kbd>F</kbd> for fullscreen, <kbd>Space</kbd> to pause.
     </div>
   </div>
-
-  <div class="footer">Tip: Lower wind + slightly higher lighting gives a tranquil sunrise.</div>
 
   <div class="overlay" id="overlay">
     <div class="card">
@@ -175,50 +201,59 @@
   <script type="module">
     const overlay = document.getElementById("overlay");
     const overlayText = document.getElementById("overlayText");
-
     function showError(err){
       const msg = (err && err.stack) ? err.stack : String(err);
       console.error(msg);
-      overlayText.textContent = msg + "\n\n" +
-        "Common fixes:\n" +
-        "1) Ensure Three.js loads (CDN not blocked; or put three.module.js under /vendor).\n" +
-        "2) Hard refresh (Ctrl+F5) to clear GitHub Pages cache.\n" +
-        "3) Enable Hardware Acceleration / WebGL in browser settings.\n";
+      overlayText.textContent = msg;
       overlay.style.display = "flex";
     }
-
     function hasWebGL(){
       try{
         const c = document.createElement("canvas");
         return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
       }catch(_){ return false; }
     }
-
     async function loadThree(){
-      // Try local vendor first (recommended for GitHub Pages stability), then CDN.
       const candidates = [
         "./vendor/three.module.js",
-        "./vendor/three.module.min.js",
         "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
       ];
       let lastErr = null;
       for (const url of candidates){
-        try{
-          return await import(url);
-        }catch(e){
-          lastErr = e;
-        }
+        try{ return await import(url); }
+        catch(e){ lastErr = e; }
       }
-      throw new Error(
-        "Failed to load Three.js.\n" +
-        "Tried:\n- " + candidates.join("\n- ") + "\n\nLast error:\n" + (lastErr?.message || lastErr)
-      );
+      throw new Error("Failed to load Three.js. Last error: " + (lastErr?.message || lastErr));
+    }
+
+    // --- Grain ---
+    const grain = document.getElementById("grain");
+    const gctx = grain.getContext("2d", { alpha: true });
+    function resizeGrain(){
+      grain.width = Math.floor(window.innerWidth);
+      grain.height = Math.floor(window.innerHeight);
+    }
+    resizeGrain();
+
+    function drawGrain(){
+      const w = grain.width, h = grain.height;
+      const img = gctx.createImageData(w, h);
+      const d = img.data;
+      // sparse grain for performance
+      for (let i = 0; i < d.length; i += 16){
+        const v = (Math.random() * 255) | 0;
+        d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+      }
+      gctx.putImageData(img, 0, 0);
+      // soften it
+      gctx.globalAlpha = 0.30;
+      gctx.fillStyle = "rgba(0,0,0,0.0)";
+      gctx.fillRect(0, 0, w, h);
+      gctx.globalAlpha = 1.0;
     }
 
     try{
-      if (!hasWebGL()){
-        throw new Error("WebGL is not available. Enable WebGL/Hardware Acceleration or try Chrome.");
-      }
+      if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration.");
 
       const THREE = await loadThree();
 
@@ -232,13 +267,13 @@
         lightVal: document.getElementById("lightVal"),
         resetBtn: document.getElementById("resetBtn"),
         pauseBtn: document.getElementById("pauseBtn"),
+        fsBtn: document.getElementById("fsBtn"),
       };
 
-      function fmt(n, d=2){ return Number(n).toFixed(d); }
       function syncLabels(){
-        ui.windVal.textContent = fmt(ui.wind.value, 1);
-        ui.heightVal.textContent = fmt(ui.height.value, 2);
-        ui.lightVal.textContent = fmt(ui.light.value, 2);
+        ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
+        ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
+        ui.lightVal.textContent = Math.round(Number(ui.light.value) * 100) + "%";
       }
       ["input","change"].forEach(evt => {
         ui.wind.addEventListener(evt, syncLabels);
@@ -247,9 +282,8 @@
       });
       syncLabels();
 
-      // ---------- Three.js setup ----------
+      // ---------- Renderer ----------
       const app = document.getElementById("app");
-
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
 
@@ -258,137 +292,115 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 0.95;
+      renderer.toneMappingExposure = 1.02;
       app.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(0x07111d, 0.012);
+      scene.fog = new THREE.FogExp2(0x07111d, 0.0045); // lighter fog for cinematic look
 
-      const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 5000);
+      // Low camera (cinematic)
+      const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.05, 4000);
 
-      // ---------- Minimal orbit controls (no OrbitControls dependency) ----------
+      // ---------- Minimal orbit ----------
       const orbit = {
-        target: new THREE.Vector3(0, 0, 0),
-        radius: 70,
-        yaw: 0.9,     // left-right
-        pitch: 0.35,  // up-down
-        minRadius: 20,
-        maxRadius: 180,
-        minPitch: 0.05,
-        maxPitch: Math.PI * 0.49,
+        target: new THREE.Vector3(0, 0.8, 0),
+        radius: 24,
+        yaw: 1.02,
+        pitch: 0.20,
+        minRadius: 10,
+        maxRadius: 80,
+        minPitch: 0.06,
+        maxPitch: Math.PI * 0.40,
         dragging: false,
         lastX: 0,
         lastY: 0,
-        speed: 0.0075,
+        speed: 0.0070
       };
-
       function updateCamera(){
-        const cp = Math.cos(orbit.pitch);
-        const sp = Math.sin(orbit.pitch);
-        const cy = Math.cos(orbit.yaw);
-        const sy = Math.sin(orbit.yaw);
-
+        const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+        const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
         const x = orbit.radius * cp * cy;
         const z = orbit.radius * cp * sy;
         const y = orbit.radius * sp;
-
-        camera.position.set(
-          orbit.target.x + x,
-          orbit.target.y + y,
-          orbit.target.z + z
-        );
+        camera.position.set(orbit.target.x + x, orbit.target.y + y, orbit.target.z + z);
         camera.lookAt(orbit.target);
       }
+      updateCamera();
 
       renderer.domElement.style.touchAction = "none";
-
       renderer.domElement.addEventListener("pointerdown", (e) => {
         orbit.dragging = true;
-        orbit.lastX = e.clientX;
-        orbit.lastY = e.clientY;
+        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
         renderer.domElement.setPointerCapture(e.pointerId);
       });
-
       renderer.domElement.addEventListener("pointermove", (e) => {
         if (!orbit.dragging) return;
         const dx = e.clientX - orbit.lastX;
         const dy = e.clientY - orbit.lastY;
-        orbit.lastX = e.clientX;
-        orbit.lastY = e.clientY;
+        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
 
         orbit.yaw   -= dx * orbit.speed;
         orbit.pitch -= dy * orbit.speed;
         orbit.pitch = Math.max(orbit.minPitch, Math.min(orbit.maxPitch, orbit.pitch));
         updateCamera();
       });
-
       renderer.domElement.addEventListener("pointerup", (e) => {
         orbit.dragging = false;
-        try { renderer.domElement.releasePointerCapture(e.pointerId); } catch(_) {}
+        try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch(_){}
       });
-
       renderer.domElement.addEventListener("wheel", (e) => {
         e.preventDefault();
-        const delta = Math.sign(e.deltaY);
-        orbit.radius *= (delta > 0 ? 1.06 : 0.94);
-        orbit.radius = Math.max(orbit.minRadius, Math.min(orbit.maxRadius, orbit.radius));
+        const s = (e.deltaY > 0) ? 1.06 : 0.94;
+        orbit.radius = Math.max(orbit.minRadius, Math.min(orbit.maxRadius, orbit.radius * s));
         updateCamera();
       }, { passive: false });
 
-      // Initial camera pose
-      orbit.radius = 70;
-      orbit.yaw = 0.95;
-      orbit.pitch = 0.32;
-      updateCamera();
-
-      // ---------- Sky (gradient dome) ----------
-      const skyGeo = new THREE.SphereGeometry(2000, 32, 16);
+      // ---------- Sky (subtle gradient) ----------
+      const skyGeo = new THREE.SphereGeometry(1800, 32, 16);
       const skyMat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
         uniforms: {
-          uTop:    { value: new THREE.Color(0x0b2440) },
-          uHorizon:{ value: new THREE.Color(0x09233a) },
+          uTop:    { value: new THREE.Color(0x0b2a43) },
+          uMid:    { value: new THREE.Color(0x0a2238) },
           uBottom: { value: new THREE.Color(0x07111d) },
           uLight:  { value: parseFloat(ui.light.value) },
         },
         vertexShader: `
-          varying vec3 vWorldPos;
+          varying vec3 vDir;
           void main(){
-            vec4 wp = modelMatrix * vec4(position, 1.0);
-            vWorldPos = wp.xyz;
-            gl_Position = projectionMatrix * viewMatrix * wp;
+            vDir = normalize((modelMatrix * vec4(position,1.0)).xyz);
+            gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
           }
         `,
         fragmentShader: `
           precision highp float;
-          varying vec3 vWorldPos;
-          uniform vec3 uTop, uHorizon, uBottom;
+          varying vec3 vDir;
+          uniform vec3 uTop, uMid, uBottom;
           uniform float uLight;
-
           void main(){
-            float h = normalize(vWorldPos).y * 0.5 + 0.5;
-            vec3 col = mix(uBottom, uHorizon, smoothstep(0.05, 0.55, h));
-            col = mix(col, uTop, smoothstep(0.45, 1.0, h));
-            col += vec3(0.06, 0.08, 0.10) * (uLight * 0.9);
-            gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+            float h = vDir.y * 0.5 + 0.5;
+            vec3 col = mix(uBottom, uMid, smoothstep(0.00, 0.55, h));
+            col = mix(col, uTop, smoothstep(0.35, 1.00, h));
+            col += vec3(0.04,0.05,0.07) * (uLight*0.9);
+            gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
           }
         `
       });
       scene.add(new THREE.Mesh(skyGeo, skyMat));
 
       // ---------- Lighting ----------
-      const ambient = new THREE.AmbientLight(0xbad7ff, 0.25);
+      const ambient = new THREE.AmbientLight(0xbad7ff, 0.20);
       scene.add(ambient);
 
-      const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-      sun.position.set(60, 80, 20);
+      const sun = new THREE.DirectionalLight(0xffffff, 1.25);
+      sun.position.set(40, 60, 10);
       scene.add(sun);
 
-      // ---------- Ocean: Gerstner waves ----------
-      const oceanSize = 1200;
-      const segments = isMobile ? 160 : 320; // keep it safe
+      // ---------- Ocean (better micro normals + cinematic spec) ----------
+      const oceanSize = 900;
+      const segments = isMobile ? 220 : 360;
       const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
-      oceanGeo.rotateX(-Math.PI / 2);
+      oceanGeo.rotateX(-Math.PI/2);
 
       const oceanMat = new THREE.ShaderMaterial({
         uniforms: {
@@ -399,16 +411,19 @@
           uSunDir: { value: new THREE.Vector3().copy(sun.position).normalize() },
           uCamPos: { value: new THREE.Vector3() },
           uFogColor: { value: new THREE.Color(0x07111d) },
-          uFogDensity: { value: 0.012 },
+          uFogDensity: { value: 0.0045 },
+          uNormalStrength: { value: 10.0 },  // strong micro-normal (key for GIF look)
         },
         vertexShader: `
           precision highp float;
+
           uniform float uTime;
           uniform float uWind;
           uniform float uHeight;
+          uniform float uNormalStrength;
 
-          varying vec3 vNormal;
           varying vec3 vWorldPos;
+          varying vec3 vNormal;
 
           vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
             float t = uTime * speed;
@@ -417,14 +432,11 @@
             float c = cos(phase);
 
             float qa = steep * amp;
-            vec3 disp = vec3(
-              dir.x * qa * c,
-              amp * s,
-              dir.y * qa * c
-            );
+            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
 
+            // derivative-ish normal acc (then boosted by uNormalStrength)
             nAcc.x += -dir.x * qa * freq * s;
-            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.15;
+            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.12;
             nAcc.z += -dir.y * qa * freq * s;
 
             return disp;
@@ -438,10 +450,6 @@
             float H = uHeight;
 
             vec2 wdir = normalize(vec2(1.0, 0.35));
-
-            vec3 nAcc = vec3(0.0, 1.0, 0.0);
-            vec3 disp = vec3(0.0);
-
             vec2 d1 = normalize(wdir + vec2( 0.18, -0.06));
             vec2 d2 = normalize(wdir + vec2(-0.10,  0.14));
             vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
@@ -450,14 +458,27 @@
 
             float w = 0.12 + wind * 0.018;
 
-            disp += gerstner(xz, d1, 0.55, 0.85 * H, 0.020, 1.05 * w, nAcc);
-            disp += gerstner(xz, d2, 0.45, 0.55 * H, 0.035, 1.35 * w, nAcc);
-            disp += gerstner(xz, d3, 0.35, 0.30 * H, 0.060, 1.75 * w, nAcc);
-            disp += gerstner(xz, d4, 0.25, 0.18 * H, 0.090, 2.20 * w, nAcc);
-            disp += gerstner(xz, d5, 0.18, 0.10 * H, 0.140, 2.80 * w, nAcc);
+            vec3 nAcc = vec3(0.0, 1.0, 0.0);
+            vec3 disp = vec3(0.0);
+
+            // main waves (slightly higher freq to show structure)
+            disp += gerstner(xz, d1, 0.60, 0.95*H, 0.040, 1.00*w, nAcc);
+            disp += gerstner(xz, d2, 0.50, 0.62*H, 0.070, 1.35*w, nAcc);
+            disp += gerstner(xz, d3, 0.38, 0.34*H, 0.120, 1.85*w, nAcc);
+            disp += gerstner(xz, d4, 0.28, 0.20*H, 0.180, 2.35*w, nAcc);
+            disp += gerstner(xz, d5, 0.20, 0.12*H, 0.280, 3.00*w, nAcc);
+
+            // micro ripples (key to specular sparkle)
+            float rt = uTime * (1.2 + wind*0.02);
+            float r1 = sin( (xz.x*1.40 + xz.y*1.10)*0.9 + rt*2.2 );
+            float r2 = sin( (xz.x*2.10 - xz.y*1.60)*1.1 + rt*1.8 );
+            float micro = (r1*0.10 + r2*0.08) * (0.25 + 0.02*wind) * (0.35 + 0.45*H);
+            disp.y += micro;
 
             pos += disp;
 
+            // boost micro normals
+            nAcc.xz *= uNormalStrength;
             vNormal = normalize(nAcc);
 
             vec4 wp = modelMatrix * vec4(pos, 1.0);
@@ -475,8 +496,8 @@
           uniform vec3 uFogColor;
           uniform float uFogDensity;
 
-          varying vec3 vNormal;
           varying vec3 vWorldPos;
+          varying vec3 vNormal;
 
           float fresnelSchlick(float cosTheta, float F0){
             return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
@@ -485,36 +506,43 @@
           void main(){
             vec3 N = normalize(vNormal);
             vec3 V = normalize(uCamPos - vWorldPos);
+            vec3 L = normalize(uSunDir);
 
-            float depthHint = clamp((vWorldPos.y + 2.0) * 0.08, 0.0, 1.0);
-            vec3 deep = vec3(0.02, 0.10, 0.18);
-            vec3 shallow = vec3(0.05, 0.18, 0.24);
+            // base water
+            vec3 deep = vec3(0.02, 0.08, 0.14);
+            vec3 shallow = vec3(0.05, 0.16, 0.20);
+            float depthHint = clamp((vWorldPos.y + 1.8) * 0.10, 0.0, 1.0);
             vec3 baseCol = mix(deep, shallow, depthHint);
 
+            // sky reflection (approx)
             float skyMix = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
-            vec3 skyCol = mix(vec3(0.02, 0.07, 0.12), vec3(0.10, 0.22, 0.35), pow(skyMix, 1.2));
+            vec3 skyCol = mix(vec3(0.02,0.06,0.10), vec3(0.14,0.24,0.34), pow(skyMix, 1.1));
 
-            vec3 L = normalize(uSunDir);
+            // specular highlight
             vec3 H = normalize(L + V);
             float ndl = max(dot(N, L), 0.0);
             float ndh = max(dot(N, H), 0.0);
 
-            float rough = mix(0.10, 0.04, uLight);
-            float specPow = mix(60.0, 220.0, 1.0 - rough);
-            float spec = pow(ndh, specPow) * (0.25 + uLight * 0.95);
+            float rough = mix(0.085, 0.045, uLight);
+            float specPow = mix(110.0, 320.0, 1.0 - rough);
+            float spec = pow(ndh, specPow) * (0.20 + uLight * 1.10);
 
+            // fresnel reflection
             float cosTheta = clamp(dot(N, V), 0.0, 1.0);
             float F = fresnelSchlick(cosTheta, 0.02);
 
             vec3 col = baseCol;
-            col = mix(col, skyCol, F * (0.55 + 0.25 * uLight));
-            col += vec3(1.0, 0.95, 0.85) * spec * ndl;
+            col = mix(col, skyCol, F * (0.55 + 0.25*uLight));
+            col += vec3(1.0, 0.97, 0.90) * spec * ndl;
 
-            float foam = smoothstep(0.65, 0.92, 1.0 - N.y);
-            col = mix(col, vec3(0.80, 0.90, 0.95), foam * 0.12);
+            // foam on crests (slope-based)
+            float foam = smoothstep(0.60, 0.94, 1.0 - N.y);
+            col = mix(col, vec3(0.85, 0.93, 1.00), foam * 0.18);
 
+            // cinematic contrast
             col = pow(col, vec3(0.92));
 
+            // fog
             float dist = length(uCamPos - vWorldPos);
             float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
             col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
@@ -525,59 +553,65 @@
       });
 
       const ocean = new THREE.Mesh(oceanGeo, oceanMat);
-      ocean.position.y = 0;
+      ocean.position.y = 0.0;
       scene.add(ocean);
 
-      // ---------- Interaction ----------
+      // ---------- Controls / UI hooks ----------
       let paused = false;
 
       function applyLighting(l){
         const t = THREE.MathUtils.clamp(l, 0, 1);
 
-        const elev = THREE.MathUtils.lerp(0.10, 0.85, t);
+        // sun position and intensities
+        const elev = THREE.MathUtils.lerp(0.12, 0.78, t);
         const azim = 0.35;
         const r = 120.0;
-
         const x = Math.cos(azim) * r;
         const z = Math.sin(azim) * r;
-        const y = THREE.MathUtils.lerp(18, 90, elev);
+        const y = THREE.MathUtils.lerp(14, 78, elev);
 
         sun.position.set(x, y, z);
-        sun.intensity = THREE.MathUtils.lerp(0.55, 1.35, t);
-        ambient.intensity = THREE.MathUtils.lerp(0.18, 0.35, t);
+        sun.intensity = THREE.MathUtils.lerp(0.75, 1.45, t);
+        ambient.intensity = THREE.MathUtils.lerp(0.16, 0.30, t);
 
-        const top = new THREE.Color().setHSL(0.58, 0.55, THREE.MathUtils.lerp(0.18, 0.32, t));
-        const horizon = new THREE.Color().setHSL(0.56, 0.55, THREE.MathUtils.lerp(0.12, 0.26, t));
-        const bottom = new THREE.Color().setHSL(0.60, 0.70, THREE.MathUtils.lerp(0.05, 0.10, t));
-
+        // sky tone
+        const top = new THREE.Color().setHSL(0.58, 0.52, THREE.MathUtils.lerp(0.18, 0.32, t));
+        const mid = new THREE.Color().setHSL(0.56, 0.48, THREE.MathUtils.lerp(0.11, 0.26, t));
+        const bottom = new THREE.Color().setHSL(0.60, 0.66, THREE.MathUtils.lerp(0.05, 0.10, t));
         skyMat.uniforms.uTop.value.copy(top);
-        skyMat.uniforms.uHorizon.value.copy(horizon);
+        skyMat.uniforms.uMid.value.copy(mid);
         skyMat.uniforms.uBottom.value.copy(bottom);
         skyMat.uniforms.uLight.value = t;
 
-        oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
         oceanMat.uniforms.uLight.value = t;
+        oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
 
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.88, 1.05, t);
+        // exposure
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.95, 1.08, t);
       }
 
       function applyWindAndHeight(){
         oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
         oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+
+        // also let normal strength react a bit
+        const wind = parseFloat(ui.wind.value);
+        const h = parseFloat(ui.height.value);
+        oceanMat.uniforms.uNormalStrength.value = 8.0 + wind*0.15 + h*1.2;
       }
 
       ui.resetBtn.addEventListener("click", () => {
-        ui.wind.value = "10";
+        ui.wind.value = "12";
         ui.height.value = "1.0";
-        ui.light.value = "0.55";
+        ui.light.value = "0.62";
         syncLabels();
         applyWindAndHeight();
         applyLighting(parseFloat(ui.light.value));
 
-        orbit.target.set(0, 0, 0);
-        orbit.radius = 70;
-        orbit.yaw = 0.95;
-        orbit.pitch = 0.32;
+        orbit.target.set(0, 0.8, 0);
+        orbit.radius = 24;
+        orbit.yaw = 1.02;
+        orbit.pitch = 0.20;
         updateCamera();
       });
 
@@ -585,6 +619,15 @@
         paused = !paused;
         ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
       });
+
+      async function toggleFullscreen(){
+        if (!document.fullscreenElement){
+          await document.documentElement.requestFullscreen?.();
+        }else{
+          await document.exitFullscreen?.();
+        }
+      }
+      ui.fsBtn.addEventListener("click", toggleFullscreen);
 
       ui.wind.addEventListener("input", applyWindAndHeight);
       ui.height.addEventListener("input", applyWindAndHeight);
@@ -596,42 +639,46 @@
           paused = !paused;
           ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
         }
-        if (e.key.toLowerCase() === "r"){
-          orbit.target.set(0, 0, 0);
-          orbit.radius = 70;
-          orbit.yaw = 0.95;
-          orbit.pitch = 0.32;
-          updateCamera();
+        if (e.key.toLowerCase() === "f"){
+          toggleFullscreen();
         }
       });
 
+      // init
       applyWindAndHeight();
       applyLighting(parseFloat(ui.light.value));
 
-      // ---------- Render loop ----------
+      // ---------- Loop ----------
       const clock = new THREE.Clock();
+      let grainAcc = 0;
       function tick(){
         requestAnimationFrame(tick);
 
         const dt = clock.getDelta();
-        if (!paused){
-          oceanMat.uniforms.uTime.value += dt;
-        }
+        if (!paused) oceanMat.uniforms.uTime.value += dt;
 
         oceanMat.uniforms.uCamPos.value.copy(camera.position);
         oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
 
         renderer.render(scene, camera);
+
+        // update grain at ~20fps
+        grainAcc += dt;
+        if (grainAcc > 0.05){
+          drawGrain();
+          grainAcc = 0;
+        }
       }
       tick();
 
       // ---------- Resize ----------
-      window.addEventListener("resize", () => {
-        const w = window.innerWidth, h = window.innerHeight;
-        renderer.setSize(w, h);
-        camera.aspect = w / h;
+      function onResize(){
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
-      });
+        resizeGrain();
+      }
+      window.addEventListener("resize", onResize);
 
     } catch (e) {
       showError(e);
