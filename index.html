@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Ocean Wave Simulation</title>
+
   <style>
     :root{
       --panel-bg: rgba(12, 18, 28, 0.62);
@@ -12,30 +13,74 @@
       --muted: rgba(235, 245, 255, 0.70);
       --shadow: 0 18px 55px rgba(0,0,0,0.40);
       --radius: 18px;
-    }
-    html, body { height:100%; margin:0; background:#050F1E; overflow:hidden; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; }
-    #app { position: fixed; inset: 0; }
-    canvas { display:block; width:100%; height:100%; }
 
-    /* Vignette + subtle spotlight */
+      /* 用于匹配背景图的“地平线高度”（0~1，越大地平线越靠下） */
+      --horizon: 0.53;
+    }
+
+    html, body {
+      height:100%;
+      margin:0;
+      overflow:hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      background: #050F1E;
+    }
+
+    /* 背景：你的星空照片（只作为背景层） */
+    body{
+      background-image: url("./huan-xiang-shi-xing-xi-bei-jing.jpg");
+      background-size: cover;
+      background-position: center top;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+    }
+
+    /* 用一层“遮罩”把原图里水面那部分压暗，避免和我们渲染的海面叠加看起来脏 */
+    .bg-mask{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 1;
+      background:
+        linear-gradient(
+          to bottom,
+          rgba(0,0,0,0.00) 0%,
+          rgba(0,0,0,0.00) calc(var(--horizon) * 100%),
+          rgba(5,15,30,0.88) calc(var(--horizon) * 100% + 2%),
+          rgba(5,15,30,1.00) 100%
+        );
+    }
+
+    #app{
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+    }
+    canvas{
+      display:block;
+      width:100%;
+      height:100%;
+    }
+
+    /* 轻微电影感：暗角 */
     .fx {
       position: fixed;
       inset: 0;
       pointer-events: none;
       z-index: 8;
       background:
-        radial-gradient(circle at 62% 36%, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.04) 18%, rgba(0,0,0,0.00) 44%),
-        radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00) 34%, rgba(0,0,0,0.62) 78%, rgba(0,0,0,0.92) 100%);
+        radial-gradient(circle at 62% 36%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 18%, rgba(0,0,0,0.00) 44%),
+        radial-gradient(circle at 50% 50%, rgba(0,0,0,0.00) 34%, rgba(0,0,0,0.60) 78%, rgba(0,0,0,0.92) 100%);
       mix-blend-mode: multiply;
     }
 
-    /* Film grain */
+    /* 颗粒噪声 */
     #grain {
       position: fixed;
       inset: 0;
       pointer-events: none;
       z-index: 9;
-      opacity: 0.06;
+      opacity: 0.055;
       mix-blend-mode: overlay;
     }
 
@@ -76,6 +121,7 @@
       line-height: 1.35;
       margin-bottom: 10px;
     }
+
     .row { display:flex; gap: 12px; align-items:center; margin: 10px 0; }
     .row label { flex: 0 0 92px; font-size: 12px; color: var(--muted); }
     .row input[type="range"] { flex: 1; accent-color: rgb(120, 210, 255); }
@@ -143,6 +189,7 @@
 </head>
 
 <body>
+  <div class="bg-mask"></div>
   <div id="app"></div>
   <div class="fx"></div>
   <canvas id="grain"></canvas>
@@ -156,7 +203,7 @@
     </div>
 
     <div class="desc">
-      Deep night sky with stars, plus layered ocean waves and subtle specular sparkle.
+      Background is your photo. Ocean is simulated with layered waves + env reflection sampled from that photo.
     </div>
 
     <div class="row">
@@ -196,6 +243,8 @@
   </div>
 
   <script type="module">
+    import * as THREE from "./vendor/three.module.min.js";
+
     const overlay = document.getElementById("overlay");
     const overlayText = document.getElementById("overlayText");
 
@@ -206,30 +255,6 @@
       overlay.style.display = "flex";
     }
 
-    function hasWebGL(){
-      try{
-        const c = document.createElement("canvas");
-        return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
-      }catch(_){ return false; }
-    }
-
-    async function loadThree(){
-      const candidates = [
-        "./vendor/three.module.min.js",
-        "./vendor/three.module.js",
-        "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
-      ];
-      let lastErr = null;
-      for (const url of candidates){
-        try{ return await import(url); }
-        catch(e){ lastErr = e; }
-      }
-      throw new Error(
-        "Failed to load Three.js. Ensure ./vendor/three.module.min.js exists and is published by GitHub Pages. " +
-        "Last error: " + (lastErr?.message || lastErr)
-      );
-    }
-
     // --- Grain ---
     const grain = document.getElementById("grain");
     const gctx = grain.getContext("2d", { alpha: true });
@@ -238,7 +263,6 @@
       grain.height = Math.floor(window.innerHeight);
     }
     resizeGrain();
-
     function drawGrain(){
       const w = grain.width, h = grain.height;
       const img = gctx.createImageData(w, h);
@@ -251,10 +275,6 @@
     }
 
     try{
-      if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration in your browser.");
-
-      const THREE = await loadThree();
-
       // ---------- UI ----------
       const ui = {
         wind: document.getElementById("wind"),
@@ -267,7 +287,6 @@
         pauseBtn: document.getElementById("pauseBtn"),
         fsBtn: document.getElementById("fsBtn"),
       };
-
       function syncLabels(){
         ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
         ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
@@ -280,7 +299,7 @@
       });
       syncLabels();
 
-      // ---------- Renderer ----------
+      // ---------- Renderer (透明，让背景照片透出来) ----------
       const app = document.getElementById("app");
       const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
       const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
@@ -288,31 +307,28 @@
       const renderer = new THREE.WebGLRenderer({
         antialias: !isMobile,
         powerPreference: "high-performance",
-        alpha: false
+        alpha: true
       });
       renderer.setPixelRatio(dpr);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.0;
+      renderer.setClearColor(0x000000, 0.0);
       app.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
 
-      // deep night fog helps horizon + depth
-      const fogColor = new THREE.Color(0x050F1E); // #050F1E
-      scene.fog = new THREE.FogExp2(fogColor, 0.0105);
-
-      // ---------- Camera / Minimal orbit ----------
-      const camera = new THREE.PerspectiveCamera(54, window.innerWidth / window.innerHeight, 0.05, 4000);
+      // ---------- Camera / minimal orbit ----------
+      const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.05, 5000);
 
       const orbit = {
-        target: new THREE.Vector3(0, 0.55, 18.0),
-        radius: 26,
+        target: new THREE.Vector3(0, 0.55, 30.0),
+        radius: 28,
         yaw: 0.0,
-        pitch: 0.16,
+        pitch: 0.14,
         minRadius: 12,
-        maxRadius: 90,
+        maxRadius: 110,
         minPitch: 0.06,
         maxPitch: Math.PI * 0.40,
         dragging: false,
@@ -324,13 +340,16 @@
       function updateCamera(){
         const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
         const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
+
         const x = orbit.radius * cp * cy;
         const z = orbit.radius * cp * sy;
         const y = orbit.radius * sp;
+
+        // 向前看：让海平线更接近你图片的山脉位置
         camera.position.set(
           orbit.target.x + x,
           orbit.target.y + y,
-          orbit.target.z - 18.0 - z
+          orbit.target.z - 26.0 - z
         );
         camera.lookAt(orbit.target);
       }
@@ -364,467 +383,32 @@
         updateCamera();
       }, { passive: false });
 
-      // ---------- Lighting (no moon object, just a subtle key light) ----------
-      const ambient = new THREE.AmbientLight(0x9db6d6, 0.08);
+      // ---------- A soft key light (只作为高光来源，不做月亮物体) ----------
+      const ambient = new THREE.AmbientLight(0x9db6d6, 0.06);
       scene.add(ambient);
 
       const key = new THREE.DirectionalLight(0xe9f3ff, 1.10);
       key.position.set(40, 65, 10);
       scene.add(key);
 
-      // ---------- Sky dome: deep night gradient + stars ----------
-      const skyGeo = new THREE.SphereGeometry(2200, 42, 24);
-      const skyMat = new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        uniforms: {
-          uTop:    { value: new THREE.Color(0x0A1428) }, // #0A1428
-          uBottom: { value: new THREE.Color(0x050F1E) }, // #050F1E
-          uHaze:   { value: 0.16 },
-          uTime:   { value: 0 },
-          uLight:  { value: parseFloat(ui.light.value) },
-        },
-        vertexShader: `
-          varying vec3 vDir;
-          void main(){
-            vDir = normalize((modelMatrix * vec4(position,1.0)).xyz);
-            gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-          varying vec3 vDir;
-          uniform vec3 uTop, uBottom;
-          uniform float uHaze;
-          uniform float uTime;
-          uniform float uLight;
-
-          float hash(vec2 p){
-            p = fract(p*vec2(123.34, 345.45));
-            p += dot(p, p+34.345);
-            return fract(p.x*p.y);
-          }
-
-          float stars(vec3 d){
-            float a = atan(d.z, d.x);
-            float b = asin(clamp(d.y, -1.0, 1.0));
-            vec2 uv = vec2(a/(6.2831853)+0.5, b/3.14159265+0.5);
-
-            vec2 gv = fract(uv*vec2(520.0, 260.0));
-            vec2 id = floor(uv*vec2(520.0, 260.0));
-            float rnd = hash(id);
-
-            float present = step(0.985, rnd);
-            float size = mix(0.002, 0.010, hash(id+17.3));
-            float dist = length(gv-0.5);
-            float s = smoothstep(size, 0.0, dist) * present;
-
-            float tw = 0.65 + 0.35*sin(uTime*1.4 + rnd*20.0);
-            return s * tw;
-          }
-
-          void main(){
-            float h = clamp(vDir.y*0.5 + 0.5, 0.0, 1.0);
-
-            vec3 col = mix(uBottom, uTop, pow(h, 1.25));
-
-            float haze = smoothstep(0.0, 0.20, h) * (0.05 + uHaze*0.12);
-            col += vec3(0.10, 0.14, 0.18) * haze;
-
-            float s = stars(normalize(vDir)) * smoothstep(0.20, 0.82, h);
-            col += vec3(0.90, 0.95, 1.00) * s * (0.45 + 0.55*uLight);
-
-            col = clamp(col, 0.0, 1.0);
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `
-      });
-      scene.add(new THREE.Mesh(skyGeo, skyMat));
-
-      // ---------- Extra star points (bigger sparse stars) ----------
-      const starCount = isMobile ? 800 : 1400;
-      const starGeo = new THREE.BufferGeometry();
-      const starPos = new Float32Array(starCount*3);
-      const starSize = new Float32Array(starCount);
-      const starAlpha = new Float32Array(starCount);
-
-      function rand01(){ return Math.random(); }
-      for (let i=0;i<starCount;i++){
-        const u = rand01();
-        const v = rand01();
-        const theta = 2*Math.PI*u;
-        const y = 0.12 + 0.88*v;
-        const phi = Math.acos(2*y-1);
-        const r = 2000;
-        const x = r*Math.sin(phi)*Math.cos(theta);
-        const z = r*Math.sin(phi)*Math.sin(theta);
-        const yy = r*Math.cos(phi);
-
-        starPos[i*3+0] = x;
-        starPos[i*3+1] = yy;
-        starPos[i*3+2] = z;
-
-        starSize[i] = (rand01()<0.08 ? 2.0 : 1.0) * (0.8 + rand01()*1.6);
-        starAlpha[i] = 0.35 + rand01()*0.65;
-      }
-      starGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
-      starGeo.setAttribute("aSize", new THREE.BufferAttribute(starSize, 1));
-      starGeo.setAttribute("aAlpha", new THREE.BufferAttribute(starAlpha, 1));
-
-      const starMat = new THREE.ShaderMaterial({
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        uniforms: { uTime: { value: 0 }, uLight: { value: parseFloat(ui.light.value) } },
-        vertexShader: `
-          attribute float aSize;
-          attribute float aAlpha;
-          varying float vAlpha;
-          void main(){
-            vAlpha = aAlpha;
-            vec4 mv = modelViewMatrix * vec4(position, 1.0);
-            gl_PointSize = aSize * (260.0 / -mv.z);
-            gl_Position = projectionMatrix * mv;
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-          varying float vAlpha;
-          uniform float uTime;
-          uniform float uLight;
-
-          void main(){
-            vec2 p = gl_PointCoord - 0.5;
-            float d = length(p);
-            float core = smoothstep(0.5, 0.0, d);
-            float glow = smoothstep(0.8, 0.0, d);
-
-            float tw = 0.65 + 0.35*sin(uTime*1.6 + vAlpha*9.0);
-            vec3 col = vec3(0.85, 0.92, 1.00) * (core*0.85 + glow*0.35) * tw;
-
-            float a = (core*0.9 + glow*0.25) * vAlpha * (0.35 + 0.70*uLight);
-            gl_FragColor = vec4(col, a);
-          }
-        `
-      });
-      const stars = new THREE.Points(starGeo, starMat);
-      scene.add(stars);
-
-      // ---------- Ocean: layered waves + fragment micro normal sparkle ----------
-      const oceanSize = 1400;
-      const segments = isMobile ? 260 : 480;
-
-      const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
-      oceanGeo.rotateX(-Math.PI/2);
-      oceanGeo.translate(0, 0.0, 260);
-
-      const oceanMat = new THREE.ShaderMaterial({
-        uniforms: {
-          uTime:   { value: 0 },
-          uWind:   { value: parseFloat(ui.wind.value) },
-          uHeight: { value: parseFloat(ui.height.value) },
-          uLight:  { value: parseFloat(ui.light.value) },
-          uKeyDir: { value: new THREE.Vector3().copy(key.position).normalize() },
-          uCamPos: { value: new THREE.Vector3() },
-          uFogColor: { value: fogColor.clone() },
-          uFogDensity: { value: 0.0105 },
-        },
-        vertexShader: `
-          precision highp float;
-
-          uniform float uTime;
-          uniform float uWind;
-          uniform float uHeight;
-
-          varying vec3 vWorldPos;
-          varying vec3 vN;
-          varying float vFoamHint;
-
-          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
-            float t = uTime * speed;
-            float phase = freq * dot(dir, xz) + t;
-            float s = sin(phase);
-            float c = cos(phase);
-
-            float qa = steep * amp;
-            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
-
-            nAcc.x += -dir.x * qa * freq * s;
-            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.18;
-            nAcc.z += -dir.y * qa * freq * s;
-
-            return disp;
-          }
-
-          void main(){
-            vec3 pos = position;
-            vec2 xz = pos.xz;
-
-            float wind = max(uWind, 0.0);
-            float H = uHeight;
-
-            vec2 wdir = normalize(vec2(1.0, 0.25));
-            vec2 d1 = normalize(wdir + vec2( 0.17, -0.04));
-            vec2 d2 = normalize(wdir + vec2(-0.09,  0.13));
-            vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
-            vec2 d4 = normalize(wdir + vec2(-0.22, -0.06));
-            vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
-
-            float w = 0.12 + wind * 0.018;
-
-            vec3 nAcc = vec3(0.0, 1.0, 0.0);
-            vec3 disp = vec3(0.0);
-
-            // macro waves
-            disp += gerstner(xz, d1, 0.62, 1.05*H, 0.036, 1.00*w, nAcc);
-            disp += gerstner(xz, d2, 0.52, 0.70*H, 0.064, 1.34*w, nAcc);
-            disp += gerstner(xz, d3, 0.40, 0.42*H, 0.112, 1.88*w, nAcc);
-            disp += gerstner(xz, d4, 0.30, 0.26*H, 0.170, 2.40*w, nAcc);
-            disp += gerstner(xz, d5, 0.22, 0.16*H, 0.250, 3.05*w, nAcc);
-
-            // vertex micro ripples (tiny height detail)
-            float rt = uTime * (1.2 + wind*0.02);
-            float r1 = sin( (xz.x*1.50 + xz.y*1.10)*1.0 + rt*2.4 );
-            float r2 = sin( (xz.x*2.10 - xz.y*1.60)*1.2 + rt*1.8 );
-            float micro = (r1*0.10 + r2*0.08) * (0.22 + 0.02*wind) * (0.35 + 0.55*H);
-            disp.y += micro;
-
-            pos += disp;
-
-            float slope = 1.0 - normalize(nAcc).y;
-            vFoamHint = smoothstep(0.18, 0.55, slope) * (0.55 + 0.45*H);
-
-            vN = normalize(nAcc);
-
-            vec4 wp = modelMatrix * vec4(pos, 1.0);
-            vWorldPos = wp.xyz;
-            gl_Position = projectionMatrix * viewMatrix * wp;
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-
-          uniform float uTime;
-          uniform float uLight;
-          uniform vec3  uKeyDir;
-          uniform vec3  uCamPos;
-
-          uniform vec3  uFogColor;
-          uniform float uFogDensity;
-
-          uniform float uWind;
-          uniform float uHeight;
-
-          varying vec3 vWorldPos;
-          varying vec3 vN;
-          varying float vFoamHint;
-
-          float sat(float x){ return clamp(x, 0.0, 1.0); }
-
-          vec3 microNormal(vec2 xz, float t){
-            vec2 d1 = normalize(vec2(1.0, 0.35));
-            vec2 d2 = normalize(vec2(-0.55, 0.82));
-            vec2 d3 = normalize(vec2(0.12, -0.99));
-
-            float f1 = 0.85, f2 = 1.35, f3 = 1.90;
-
-            float a = 0.22 + 0.014*uWind + 0.06*uHeight;
-
-            vec2 g = vec2(
-              cos(dot(xz, d1)*f1 + t*1.8)*d1.x*f1 +
-              cos(dot(xz, d2)*f2 + t*2.2)*d2.x*f2 +
-              cos(dot(xz, d3)*f3 + t*2.6)*d3.x*f3,
-              cos(dot(xz, d1)*f1 + t*1.8)*d1.y*f1 +
-              cos(dot(xz, d2)*f2 + t*2.2)*d2.y*f2 +
-              cos(dot(xz, d3)*f3 + t*2.6)*d3.y*f3
-            );
-
-            return normalize(vec3(-g.x*a, 1.0, -g.y*a));
-          }
-
-          float fresnel(float cosTheta, float F0){
-            return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-          }
-
-          float specGGX(vec3 N, vec3 V, vec3 L, float rough){
-            vec3 H = normalize(V + L);
-            float ndl = max(dot(N,L), 0.0);
-            float ndv = max(dot(N,V), 0.0);
-            float ndh = max(dot(N,H), 0.0);
-            float a = rough*rough;
-            float a2 = a*a;
-            float denom = (ndh*ndh)*(a2-1.0)+1.0;
-            float D = a2 / (3.14159 * denom * denom + 1e-5);
-            float k = (rough+1.0);
-            k = (k*k)/8.0;
-            float Gv = ndv / (ndv*(1.0-k)+k);
-            float Gl = ndl / (ndl*(1.0-k)+k);
-            float G = Gv*Gl;
-            return D*G*ndl;
-          }
-
-          void main(){
-            vec3 V = normalize(uCamPos - vWorldPos);
-
-            vec3 N0 = normalize(vN);
-            vec3 Nm = microNormal(vWorldPos.xz*0.55, uTime);
-            vec3 N = normalize(mix(N0, Nm, 0.56 + 0.10*uWind/30.0));
-
-            // base water (deep navy)
-            vec3 deep = vec3(0.010, 0.040, 0.075);
-            vec3 mid  = vec3(0.020, 0.070, 0.110);
-            vec3 col = mix(deep, mid, 0.55);
-
-            // sky reflection approx (darker)
-            float skyMix = sat(N.y*0.5 + 0.5);
-            vec3 skyCol = mix(vec3(0.015,0.030,0.060), vec3(0.060,0.090,0.130), pow(skyMix, 1.25));
-
-            float cosTheta = sat(dot(N, V));
-            float F = fresnel(cosTheta, 0.02);
-            col = mix(col, skyCol, F*(0.62 + 0.18*uLight));
-
-            // subtle starlight key (no visible moon, just gentle specular)
-            vec3 L = normalize(uKeyDir);
-            float rough = mix(0.22, 0.10, uLight);
-            float spec = specGGX(N, V, L, rough);
-            col += vec3(0.90, 0.95, 1.00) * spec * (0.12 + 0.65*uLight);
-
-            // very soft foam on crests
-            float foam = vFoamHint;
-            col = mix(col, vec3(0.75, 0.84, 0.94), foam * 0.12);
-
-            col = pow(col, vec3(0.96));
-
-            float dist = length(uCamPos - vWorldPos);
-            float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
-            col = mix(col, uFogColor, sat(fog));
-
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `
+      // ---------- Env texture: 用同一张照片做海面反射（关键：真实感） ----------
+      const envTex = await new Promise((resolve, reject) => {
+        const loader = new THREE.TextureLoader();
+        loader.load(
+          "./huan-xiang-shi-xing-xi-bei-jing.jpg",
+          (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.minFilter = THREE.LinearMipmapLinearFilter;
+            tex.magFilter = THREE.LinearFilter;
+            tex.generateMipmaps = true;
+            resolve(tex);
+          },
+          undefined,
+          (err) => reject(err)
+        );
       });
 
-      const ocean = new THREE.Mesh(oceanGeo, oceanMat);
-      ocean.position.y = 0.0;
-      scene.add(ocean);
-
-      // ---------- Controls / UI hooks ----------
-      let paused = false;
-
-      function applyLighting(l){
-        const t = THREE.MathUtils.clamp(l, 0, 1);
-
-        // move key light slightly with slider (keeps calm, adds depth)
-        const elev = THREE.MathUtils.lerp(0.18, 0.72, t);
-        const azim = THREE.MathUtils.lerp(0.10, 0.55, t);
-        const r = 120.0;
-
-        const x = Math.cos(azim) * r;
-        const z = Math.sin(azim) * r;
-        const y = THREE.MathUtils.lerp(14.0, 78.0, elev);
-
-        key.position.set(x, y, z);
-        key.intensity = THREE.MathUtils.lerp(0.25, 1.45, t);
-        ambient.intensity = THREE.MathUtils.lerp(0.05, 0.14, t);
-
-        skyMat.uniforms.uLight.value = t;
-        starMat.uniforms.uLight.value = t;
-        oceanMat.uniforms.uLight.value = t;
-
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.90, 1.06, t);
-      }
-
-      function applyWindAndHeight(){
-        oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
-        oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
-      }
-
-      ui.resetBtn.addEventListener("click", () => {
-        ui.wind.value = "12";
-        ui.height.value = "1.0";
-        ui.light.value = "0.62";
-        syncLabels();
-        applyWindAndHeight();
-        applyLighting(parseFloat(ui.light.value));
-
-        orbit.target.set(0, 0.55, 18.0);
-        orbit.radius = 26;
-        orbit.yaw = 0.0;
-        orbit.pitch = 0.16;
-        updateCamera();
-      });
-
-      ui.pauseBtn.addEventListener("click", () => {
-        paused = !paused;
-        ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
-      });
-
-      async function toggleFullscreen(){
-        if (!document.fullscreenElement){
-          await document.documentElement.requestFullscreen?.();
-        }else{
-          await document.exitFullscreen?.();
-        }
-      }
-      ui.fsBtn.addEventListener("click", toggleFullscreen);
-
-      ui.wind.addEventListener("input", applyWindAndHeight);
-      ui.height.addEventListener("input", applyWindAndHeight);
-      ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
-
-      window.addEventListener("keydown", (e) => {
-        if (e.code === "Space"){
-          e.preventDefault();
-          paused = !paused;
-          ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
-        }
-        if (e.key.toLowerCase() === "f"){
-          toggleFullscreen();
-        }
-      });
-
-      // init
-      applyWindAndHeight();
-      applyLighting(parseFloat(ui.light.value));
-
-      // ---------- Loop ----------
-      const clock = new THREE.Clock();
-      let grainAcc = 0;
-
-      function tick(){
-        requestAnimationFrame(tick);
-
-        const dt = clock.getDelta();
-        if (!paused){
-          oceanMat.uniforms.uTime.value += dt;
-          skyMat.uniforms.uTime.value += dt;
-          starMat.uniforms.uTime.value += dt;
-        }
-
-        oceanMat.uniforms.uCamPos.value.copy(camera.position);
-        oceanMat.uniforms.uKeyDir.value.copy(key.position).normalize();
-
-        renderer.render(scene, camera);
-
-        grainAcc += dt;
-        if (grainAcc > 0.05){
-          drawGrain();
-          grainAcc = 0;
-        }
-      }
-      tick();
-
-      // ---------- Resize ----------
-      function onResize(){
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        resizeGrain();
-      }
-      window.addEventListener("resize", onResize);
-
-    } catch (e) {
-      showError(e);
-    }
-  </script>
-</body>
-</html>
+      // ---------- Ocean mesh ----------
+      const oceanSize = 1800
