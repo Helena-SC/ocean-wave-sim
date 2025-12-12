@@ -390,8 +390,9 @@
           uKeyDir: { value: new THREE.Vector3().copy(key.position).normalize() },
           uFogColor: { value: new THREE.Color(0x050F1E) },
           uFogDensity: { value: 0.0065 },
-          uDeep: { value: new THREE.Color(0x061425) },
-          uShallow: { value: new THREE.Color(0x0B2638) },
+          uDeep: { value: new THREE.Color(0x082033) },     // 深水稍亮
+          uShallow: { value: new THREE.Color(0x0F3A55) },  // 浅水更亮更蓝
+
         },
         vertexShader: `
           precision highp float;
