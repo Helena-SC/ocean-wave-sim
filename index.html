@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Ocean Wave Simulation</title>
+
   <style>
     :root{
       --panel-bg: rgba(18, 28, 40, 0.55);
@@ -18,7 +19,9 @@
     canvas { display:block; width:100%; height:100%; }
 
     .hud {
-      position: fixed; left: 18px; top: 18px;
+      position: fixed;
+      left: 18px;
+      top: 18px;
       width: min(360px, calc(100vw - 36px));
       padding: 16px 16px 14px;
       border-radius: var(--radius);
@@ -31,33 +34,55 @@
       user-select: none;
       z-index: 10;
     }
-    .title { display:flex; align-items:baseline; justify-content:space-between; gap: 10px; margin-bottom: 12px; }
+    .title {
+      display:flex; align-items:baseline; justify-content:space-between;
+      gap: 10px; margin-bottom: 12px;
+    }
     .title h1 { font-size: 16px; letter-spacing: 0.2px; margin:0; font-weight: 650; }
     .badge { font-size: 12px; color: var(--muted); padding: 4px 10px; border-radius: 999px; border: 1px solid var(--panel-border); }
+
     .row { display:flex; gap: 12px; align-items:center; margin: 10px 0; }
     .row label { flex: 0 0 96px; font-size: 12px; color: var(--muted); }
-    .row input[type="range"] { flex: 1; }
+    .row input[type="range"] { flex: 1; accent-color: rgb(120, 210, 255); }
     .val { flex: 0 0 58px; text-align:right; font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text); }
+
     .buttons { display:flex; gap: 10px; margin-top: 12px; }
     button {
-      flex: 1; border-radius: 12px; border: 1px solid var(--panel-border);
-      background: rgba(255,255,255,0.06); color: var(--text);
-      padding: 10px 12px; font-size: 12px; cursor: pointer;
+      flex: 1;
+      border-radius: 12px;
+      border: 1px solid var(--panel-border);
+      background: rgba(255,255,255,0.06);
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 12px;
+      cursor: pointer;
       transition: transform 120ms ease, background 120ms ease;
     }
     button:hover { background: rgba(255,255,255,0.10); transform: translateY(-1px); }
     button:active { transform: translateY(0px); }
-    .hint { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
     .hint kbd{
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 10px; padding: 2px 6px; border-radius: 7px;
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 7px;
       border: 1px solid var(--panel-border);
       background: rgba(255,255,255,0.05);
       color: var(--text);
     }
+
     .footer {
-      position: fixed; right: 18px; bottom: 18px;
-      padding: 10px 12px; border-radius: 14px;
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      padding: 10px 12px;
+      border-radius: 14px;
       background: rgba(18, 28, 40, 0.45);
       border: 1px solid rgba(255,255,255,0.10);
       color: rgba(235, 245, 255, 0.68);
@@ -68,14 +93,21 @@
       user-select: none;
       z-index: 10;
     }
+
+    /* Error overlay (shows real causes) */
     .overlay {
-      position: fixed; inset: 0; display: none;
-      align-items: center; justify-content: center; padding: 22px;
-      background: rgba(7, 17, 29, 0.92); color: rgba(235, 245, 255, 0.92);
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      background: rgba(7, 17, 29, 0.92);
+      color: rgba(235, 245, 255, 0.92);
       z-index: 50;
     }
     .overlay .card {
-      width: min(760px, 100%);
+      width: min(820px, 100%);
       border: 1px solid rgba(255,255,255,0.14);
       border-radius: 16px;
       background: rgba(18, 28, 40, 0.55);
@@ -84,12 +116,24 @@
     }
     .overlay h2 { margin: 0 0 10px 0; font-size: 14px; }
     .overlay pre {
-      margin: 0; white-space: pre-wrap; word-break: break-word;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 12px; color: rgba(235, 245, 255, 0.80);
+      font-size: 12px;
+      color: rgba(235, 245, 255, 0.82);
       line-height: 1.35;
     }
   </style>
+
+  <!-- IMPORTANT: OrbitControls.js imports from "three", so we map it to our local vendor file -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.min.js"
+    }
+  }
+  </script>
 </head>
 
 <body>
@@ -138,27 +182,34 @@
     </div>
   </div>
 
-  <!-- LOCAL libraries (put these files in ./vendor/) -->
-  <script src="./vendor/three.min.js"></script>
-  <script src="./vendor/OrbitControls.js"></script>
-
-  <script>
+  <script type="module">
     const overlay = document.getElementById("overlay");
     const overlayText = document.getElementById("overlayText");
+
     function showError(msg){
-      console.error(msg);
-      overlayText.textContent = String(msg);
+      const text = (msg && msg.stack) ? msg.stack : String(msg);
+      console.error(text);
+      overlayText.textContent = text;
       overlay.style.display = "flex";
     }
 
-    try {
-      if (!window.THREE) {
-        throw new Error("THREE is not loaded. Make sure vendor/three.min.js exists and is committed to GitHub Pages.");
-      }
-      if (!THREE.OrbitControls) {
-        throw new Error("OrbitControls is not loaded. Make sure vendor/OrbitControls.js exists and is committed.");
+    function hasWebGL(){
+      try{
+        const c = document.createElement("canvas");
+        return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
+      }catch(_){ return false; }
+    }
+
+    try{
+      if (!hasWebGL()){
+        throw new Error("WebGL is not available in this browser. Enable Hardware Acceleration / WebGL, or try Chrome.");
       }
 
+      // Dynamic imports so we can catch failures and show overlay
+      const THREE = await import("three");
+      const { OrbitControls } = await import("./vendor/OrbitControls.js");
+
+      // ---------- UI ----------
       const ui = {
         wind: document.getElementById("wind"),
         height: document.getElementById("height"),
@@ -183,13 +234,14 @@
       });
       syncLabels();
 
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const DPR = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
-      const OCEAN_SEGMENTS = isMobile ? 180 : 420;
-
+      // ---------- Three.js setup ----------
       const app = document.getElementById("app");
+
+      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
+
       const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
-      renderer.setPixelRatio(DPR);
+      renderer.setPixelRatio(dpr);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -202,14 +254,14 @@
       const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 5000);
       camera.position.set(0, 22, 60);
 
-      const controls = new THREE.OrbitControls(camera, renderer.domElement);
+      const controls = new OrbitControls(camera, renderer.domElement);
       controls.enableDamping = true;
       controls.dampingFactor = 0.05;
       controls.minDistance = 20;
       controls.maxDistance = 180;
       controls.maxPolarAngle = Math.PI * 0.49;
 
-      // Sky
+      // ---------- Sky (simple gradient dome) ----------
       const skyGeo = new THREE.SphereGeometry(2000, 32, 16);
       const skyMat = new THREE.ShaderMaterial({
         side: THREE.BackSide,
@@ -232,17 +284,19 @@
           varying vec3 vWorldPos;
           uniform vec3 uTop, uHorizon, uBottom;
           uniform float uLight;
+
           void main(){
             float h = normalize(vWorldPos).y * 0.5 + 0.5;
             vec3 col = mix(uBottom, uHorizon, smoothstep(0.05, 0.55, h));
             col = mix(col, uTop, smoothstep(0.45, 1.0, h));
             col += vec3(0.06, 0.08, 0.10) * (uLight * 0.9);
-            gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
+            gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
           }
         `
       });
       scene.add(new THREE.Mesh(skyGeo, skyMat));
 
+      // ---------- Lighting ----------
       const ambient = new THREE.AmbientLight(0xbad7ff, 0.25);
       scene.add(ambient);
 
@@ -250,8 +304,10 @@
       sun.position.set(60, 80, 20);
       scene.add(sun);
 
-      // Ocean
-      const oceanGeo = new THREE.PlaneGeometry(1200, 1200, OCEAN_SEGMENTS, OCEAN_SEGMENTS);
+      // ---------- Ocean: Gerstner waves in shader ----------
+      const oceanSize = 1200;
+      const segments = isMobile ? 180 : 420; // reduce on mobile
+      const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
       oceanGeo.rotateX(-Math.PI / 2);
 
       const oceanMat = new THREE.ShaderMaterial({
@@ -267,7 +323,10 @@
         },
         vertexShader: `
           precision highp float;
-          uniform float uTime, uWind, uHeight;
+          uniform float uTime;
+          uniform float uWind;
+          uniform float uHeight;
+
           varying vec3 vNormal;
           varying vec3 vWorldPos;
 
@@ -276,11 +335,18 @@
             float phase = freq * dot(dir, xz) + t;
             float s = sin(phase);
             float c = cos(phase);
+
             float qa = steep * amp;
-            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+            vec3 disp = vec3(
+              dir.x * qa * c,
+              amp * s,
+              dir.y * qa * c
+            );
+
             nAcc.x += -dir.x * qa * freq * s;
             nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.15;
             nAcc.z += -dir.y * qa * freq * s;
+
             return disp;
           }
 
@@ -292,6 +358,7 @@
             float H = uHeight;
 
             vec2 wdir = normalize(vec2(1.0, 0.35));
+
             vec3 nAcc = vec3(0.0, 1.0, 0.0);
             vec3 disp = vec3(0.0);
 
@@ -310,18 +377,24 @@
             disp += gerstner(xz, d5, 0.18, 0.10 * H, 0.140, 2.80 * w, nAcc);
 
             pos += disp;
+
             vNormal = normalize(nAcc);
 
             vec4 wp = modelMatrix * vec4(pos, 1.0);
             vWorldPos = wp.xyz;
+
             gl_Position = projectionMatrix * viewMatrix * wp;
           }
         `,
         fragmentShader: `
           precision highp float;
+
           uniform float uLight;
-          uniform vec3 uSunDir, uCamPos, uFogColor;
+          uniform vec3 uSunDir;
+          uniform vec3 uCamPos;
+          uniform vec3 uFogColor;
           uniform float uFogDensity;
+
           varying vec3 vNormal;
           varying vec3 vWorldPos;
 
@@ -372,23 +445,40 @@
       });
 
       const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+      ocean.position.y = 0;
       scene.add(ocean);
 
+      // ---------- Interaction ----------
       let paused = false;
 
       function applyLighting(l){
         const t = THREE.MathUtils.clamp(l, 0, 1);
+
         const elev = THREE.MathUtils.lerp(0.10, 0.85, t);
         const azim = 0.35;
         const r = 120.0;
 
-        sun.position.set(Math.cos(azim)*r, THREE.MathUtils.lerp(18, 90, elev), Math.sin(azim)*r);
+        const x = Math.cos(azim) * r;
+        const z = Math.sin(azim) * r;
+        const y = THREE.MathUtils.lerp(18, 90, elev);
+
+        sun.position.set(x, y, z);
         sun.intensity = THREE.MathUtils.lerp(0.55, 1.35, t);
         ambient.intensity = THREE.MathUtils.lerp(0.18, 0.35, t);
 
+        // Sky colors
+        const top = new THREE.Color().setHSL(0.58, 0.55, THREE.MathUtils.lerp(0.18, 0.32, t));
+        const horizon = new THREE.Color().setHSL(0.56, 0.55, THREE.MathUtils.lerp(0.12, 0.26, t));
+        const bottom = new THREE.Color().setHSL(0.60, 0.70, THREE.MathUtils.lerp(0.05, 0.10, t));
+
+        skyMat.uniforms.uTop.value.copy(top);
+        skyMat.uniforms.uHorizon.value.copy(horizon);
+        skyMat.uniforms.uBottom.value.copy(bottom);
         skyMat.uniforms.uLight.value = t;
+
         oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
         oceanMat.uniforms.uLight.value = t;
+
         renderer.toneMappingExposure = THREE.MathUtils.lerp(0.88, 1.05, t);
       }
 
@@ -404,8 +494,8 @@
         syncLabels();
         applyWindAndHeight();
         applyLighting(parseFloat(ui.light.value));
-        controls.target.set(0,0,0);
-        camera.position.set(0,22,60);
+        controls.target.set(0, 0, 0);
+        camera.position.set(0, 22, 60);
         controls.update();
       });
 
@@ -414,33 +504,55 @@
         ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
       });
 
-      ui.wind.addEventListener("input", () => { syncLabels(); applyWindAndHeight(); });
-      ui.height.addEventListener("input", () => { syncLabels(); applyWindAndHeight(); });
-      ui.light.addEventListener("input", () => { syncLabels(); applyLighting(parseFloat(ui.light.value)); });
+      ui.wind.addEventListener("input", applyWindAndHeight);
+      ui.height.addEventListener("input", applyWindAndHeight);
+      ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
 
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space"){
+          e.preventDefault();
+          paused = !paused;
+          ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
+        }
+        if (e.key.toLowerCase() === "r"){
+          controls.target.set(0, 0, 0);
+          camera.position.set(0, 22, 60);
+          controls.update();
+        }
+      });
+
+      // Initial apply
       applyWindAndHeight();
       applyLighting(parseFloat(ui.light.value));
 
+      // ---------- Render loop ----------
       const clock = new THREE.Clock();
       function tick(){
         requestAnimationFrame(tick);
+
         const dt = clock.getDelta();
-        if (!paused) oceanMat.uniforms.uTime.value += dt;
+        if (!paused){
+          oceanMat.uniforms.uTime.value += dt;
+        }
+
         controls.update();
         oceanMat.uniforms.uCamPos.value.copy(camera.position);
         oceanMat.uniforms.uSunDir.value.copy(sun.position).normalize();
+
         renderer.render(scene, camera);
       }
       tick();
 
+      // ---------- Resize ----------
       window.addEventListener("resize", () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.aspect = window.innerWidth / window.innerHeight;
+        const w = window.innerWidth, h = window.innerHeight;
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
         camera.updateProjectionMatrix();
       });
 
     } catch (e) {
-      showError(e && e.stack ? e.stack : e);
+      showError(e);
     }
   </script>
 </body>
