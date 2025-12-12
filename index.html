@@ -35,7 +35,7 @@
       inset: 0;
       pointer-events: none;
       z-index: 9;
-      opacity: 0.08;
+      opacity: 0.085;
       mix-blend-mode: overlay;
     }
 
@@ -157,7 +157,7 @@
     </div>
 
     <div class="desc">
-      Procedural ocean surface with real-time lighting. Adjust the elements below for a calmer or stormier sea.
+      Calming, procedural ocean with moonlight and subtle stars. Adjust wind and wave height.
     </div>
 
     <div class="row">
@@ -185,7 +185,7 @@
     </div>
 
     <div class="hint">
-      Drag to look around. Press <kbd>F</kbd> for fullscreen, <kbd>Space</kbd> to pause.
+      Drag to look around. Wheel to zoom. Press <kbd>F</kbd> for fullscreen, <kbd>Space</kbd> to pause.
     </div>
   </div>
 
@@ -196,531 +196,633 @@
     </div>
   </div>
 
-  <script type="module">
-    const overlay = document.getElementById("overlay");
-    const overlayText = document.getElementById("overlayText");
-    function showError(err){
-      const msg = (err && err.stack) ? err.stack : String(err);
-      console.error(msg);
-      overlayText.textContent = msg;
-      overlay.style.display = "flex";
-    }
-    function hasWebGL(){
+  <!-- IMPORTANT: Use UMD build so GitHub Pages does NOT need module imports -->
+  <script src="./vendor/three.min.js"></script>
+
+  <script>
+    (function(){
+      const overlay = document.getElementById("overlay");
+      const overlayText = document.getElementById("overlayText");
+      function showError(err){
+        const msg = (err && err.stack) ? err.stack : String(err);
+        console.error(msg);
+        overlayText.textContent = msg;
+        overlay.style.display = "flex";
+      }
+      function hasWebGL(){
+        try{
+          const c = document.createElement("canvas");
+          return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
+        }catch(_){ return false; }
+      }
+
+      // --- Grain ---
+      const grain = document.getElementById("grain");
+      const gctx = grain.getContext("2d", { alpha: true });
+      function resizeGrain(){
+        grain.width = Math.floor(window.innerWidth);
+        grain.height = Math.floor(window.innerHeight);
+      }
+      function drawGrain(){
+        const w = grain.width, h = grain.height;
+        const img = gctx.createImageData(w, h);
+        const d = img.data;
+        // sparse grain for perf
+        for (let i = 0; i < d.length; i += 20){
+          const v = (Math.random() * 255) | 0;
+          d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
+        }
+        gctx.putImageData(img, 0, 0);
+      }
+
       try{
-        const c = document.createElement("canvas");
-        return !!(c.getContext("webgl2") || c.getContext("webgl") || c.getContext("experimental-webgl"));
-      }catch(_){ return false; }
-    }
-    async function loadThree(){
-      const candidates = [
-        "./vendor/three.module.js",
-        "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
-      ];
-      let lastErr = null;
-      for (const url of candidates){
-        try{ return await import(url); }
-        catch(e){ lastErr = e; }
-      }
-      throw new Error("Failed to load Three.js. Last error: " + (lastErr?.message || lastErr));
-    }
-
-    // --- Grain ---
-    const grain = document.getElementById("grain");
-    const gctx = grain.getContext("2d", { alpha: true });
-    function resizeGrain(){
-      grain.width = Math.floor(window.innerWidth);
-      grain.height = Math.floor(window.innerHeight);
-    }
-    resizeGrain();
-
-    function drawGrain(){
-      const w = grain.width, h = grain.height;
-      const img = gctx.createImageData(w, h);
-      const d = img.data;
-      for (let i = 0; i < d.length; i += 16){
-        const v = (Math.random() * 255) | 0;
-        d[i+0] = v; d[i+1] = v; d[i+2] = v; d[i+3] = 255;
-      }
-      gctx.putImageData(img, 0, 0);
-      gctx.globalAlpha = 0.30;
-      gctx.fillStyle = "rgba(0,0,0,0.0)";
-      gctx.fillRect(0, 0, w, h);
-      gctx.globalAlpha = 1.0;
-    }
-
-    try{
-      if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration.");
-
-      const THREE = await loadThree();
-
-      // ---------- UI ----------
-      const ui = {
-        wind: document.getElementById("wind"),
-        height: document.getElementById("height"),
-        light: document.getElementById("light"),
-        windVal: document.getElementById("windVal"),
-        heightVal: document.getElementById("heightVal"),
-        lightVal: document.getElementById("lightVal"),
-        resetBtn: document.getElementById("resetBtn"),
-        pauseBtn: document.getElementById("pauseBtn"),
-        fsBtn: document.getElementById("fsBtn"),
-      };
-
-      function syncLabels(){
-        ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
-        ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
-        ui.lightVal.textContent = Math.round(Number(ui.light.value) * 100) + "%";
-      }
-      ["input","change"].forEach(evt => {
-        ui.wind.addEventListener(evt, syncLabels);
-        ui.height.addEventListener(evt, syncLabels);
-        ui.light.addEventListener(evt, syncLabels);
-      });
-      syncLabels();
-
-      // ---------- Renderer ----------
-      const app = document.getElementById("app");
-      const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
-
-      const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
-      renderer.setPixelRatio(dpr);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.02;
-      app.appendChild(renderer.domElement);
-
-      const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(0x07111d, 0.0045);
-
-      // Low camera (cinematic)
-      const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.05, 4000);
-
-      // ---------- Minimal orbit ----------
-      const orbit = {
-        target: new THREE.Vector3(0, 0.8, 0),
-        radius: 24,
-        yaw: 1.02,
-        pitch: 0.20,
-        minRadius: 10,
-        maxRadius: 80,
-        minPitch: 0.06,
-        maxPitch: Math.PI * 0.40,
-        dragging: false,
-        lastX: 0,
-        lastY: 0,
-        speed: 0.0070
-      };
-      function updateCamera(){
-        const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
-        const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
-        const x = orbit.radius * cp * cy;
-        const z = orbit.radius * cp * sy;
-        const y = orbit.radius * sp;
-        camera.position.set(orbit.target.x + x, orbit.target.y + y, orbit.target.z + z);
-        camera.lookAt(orbit.target);
-      }
-      updateCamera();
-
-      renderer.domElement.style.touchAction = "none";
-      renderer.domElement.addEventListener("pointerdown", (e) => {
-        orbit.dragging = true;
-        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
-        renderer.domElement.setPointerCapture(e.pointerId);
-      });
-      renderer.domElement.addEventListener("pointermove", (e) => {
-        if (!orbit.dragging) return;
-        const dx = e.clientX - orbit.lastX;
-        const dy = e.clientY - orbit.lastY;
-        orbit.lastX = e.clientX; orbit.lastY = e.clientY;
-
-        orbit.yaw   -= dx * orbit.speed;
-        orbit.pitch -= dy * orbit.speed;
-        orbit.pitch = Math.max(orbit.minPitch, Math.min(orbit.maxPitch, orbit.pitch));
-        updateCamera();
-      });
-      renderer.domElement.addEventListener("pointerup", (e) => {
-        orbit.dragging = false;
-        try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch(_){}
-      });
-      renderer.domElement.addEventListener("wheel", (e) => {
-        e.preventDefault();
-        const s = (e.deltaY > 0) ? 1.06 : 0.94;
-        orbit.radius = Math.max(orbit.minRadius, Math.min(orbit.maxRadius, orbit.radius * s));
-        updateCamera();
-      }, { passive: false });
-
-      // ---------- Lighting ----------
-      const ambient = new THREE.AmbientLight(0xbad7ff, 0.20);
-      scene.add(ambient);
-
-      const sun = new THREE.DirectionalLight(0xffffff, 1.25);
-      sun.position.set(40, 60, 10);
-      scene.add(sun);
-
-      // ---------- Sky (layered + stars + moon) ----------
-      const skyGeo = new THREE.SphereGeometry(2400, 32, 18);
-      const skyMat = new THREE.ShaderMaterial({
-        side: THREE.BackSide,
-        uniforms: {
-          uTop:    { value: new THREE.Color(0x0b2a43) },
-          uMid:    { value: new THREE.Color(0x0a2238) },
-          uBottom: { value: new THREE.Color(0x07111d) },
-          uSunDir: { value: new THREE.Vector3().copy(sun.position).normalize() },
-          uMoonDir:{ value: new THREE.Vector3(-0.25, 0.72, -0.64).normalize() },
-          uLight:  { value: parseFloat(ui.light.value) },
-          uTime:   { value: 0.0 },
-          uStarAmount: { value: 0.65 },
-          uMoonSize:   { value: 0.060 },
-        },
-        vertexShader: `
-          varying vec3 vDir;
-          void main(){
-            vDir = normalize((modelMatrix * vec4(position,1.0)).xyz);
-            gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-          varying vec3 vDir;
-          uniform vec3 uTop, uMid, uBottom;
-          uniform vec3 uSunDir;
-          uniform vec3 uMoonDir;
-          uniform float uLight;
-          uniform float uTime;
-          uniform float uStarAmount;
-          uniform float uMoonSize;
-
-          float hash31(vec3 p){
-            p = fract(p * 0.1031);
-            p += dot(p, p.yzx + 33.33);
-            return fract((p.x + p.y) * p.z);
-          }
-
-          void main(){
-            vec3 dir = normalize(vDir);
-            float h = dir.y * 0.5 + 0.5;
-
-            vec3 col = mix(uBottom, uMid, smoothstep(0.00, 0.62, h));
-            col = mix(col, uTop, smoothstep(0.28, 1.00, h));
-
-            float haze = smoothstep(0.00, 0.22, h) * (1.0 - smoothstep(0.30, 0.52, h));
-            col += vec3(0.05, 0.07, 0.09) * haze * (0.35 + 0.45*uLight);
-
-            float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
-            float sunGlow = pow(sunDot, 180.0) * (0.65 + 0.85*uLight);
-            float sunHalo = pow(sunDot, 28.0)  * (0.08 + 0.25*uLight);
-            col += vec3(1.0, 0.98, 0.92) * (sunGlow + sunHalo);
-
-            float night = smoothstep(0.85, 0.15, uLight);
-
-            float upper = smoothstep(0.10, 0.55, h);
-            vec3 sp = dir * 420.0;
-            float n = hash31(floor(sp));
-            float star = smoothstep(0.9945, 0.9999, n) * upper;
-            float tw = 0.75 + 0.25*sin(uTime*1.7 + n*12.0);
-            vec3 starCol = vec3(0.95, 0.98, 1.0) * star * tw;
-
-            float moonDot = dot(dir, normalize(uMoonDir));
-            float ang = acos(clamp(moonDot, -1.0, 1.0));
-            float moonDisc = 1.0 - smoothstep(uMoonSize*0.92, uMoonSize*1.02, ang);
-            float moonHalo = exp(-ang*ang/(uMoonSize*uMoonSize*6.0)) * 0.45;
-
-            float mTex = 0.65 + 0.35*hash31(dir*910.0);
-            vec3 moonColor = vec3(0.95, 0.97, 1.00) * (0.75 + 0.25*mTex);
-
-            col += (starCol * uStarAmount) * night;
-            col += moonColor * moonDisc * night;
-            col += vec3(0.75, 0.86, 1.0) * moonHalo * night;
-
-            col += vec3(0.01,0.015,0.02) * (0.2 + 0.7*uLight);
-
-            gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
-          }
-        `
-      });
-      scene.add(new THREE.Mesh(skyGeo, skyMat));
-
-      // ---------- Ocean ----------
-      const oceanSize = 900;
-      const segments = isMobile ? 220 : 360;
-      const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
-      oceanGeo.rotateX(-Math.PI/2);
-
-      const oceanMat = new THREE.ShaderMaterial({
-        uniforms: {
-          uTime:   { value: 0 },
-          uWind:   { value: parseFloat(ui.wind.value) },
-          uHeight: { value: parseFloat(ui.height.value) },
-          uLight:  { value: parseFloat(ui.light.value) },
-          uSunDir: { value: new THREE.Vector3().copy(sun.position).normalize() },
-          uCamPos: { value: new THREE.Vector3() },
-          uFogColor: { value: new THREE.Color(0x07111d) },
-          uFogDensity: { value: 0.0045 },
-          uNormalStrength: { value: 10.0 },
-        },
-        vertexShader: `
-          precision highp float;
-
-          uniform float uTime;
-          uniform float uWind;
-          uniform float uHeight;
-          uniform float uNormalStrength;
-
-          varying vec3 vWorldPos;
-          varying vec3 vNormal;
-
-          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
-            float t = uTime * speed;
-            float phase = freq * dot(dir, xz) + t;
-            float s = sin(phase);
-            float c = cos(phase);
-
-            float qa = steep * amp;
-            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
-
-            nAcc.x += -dir.x * qa * freq * s;
-            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.12;
-            nAcc.z += -dir.y * qa * freq * s;
-
-            return disp;
-          }
-
-          void main(){
-            vec3 pos = position;
-            vec2 xz = pos.xz;
-
-            float wind = max(uWind, 0.0);
-            float H = uHeight;
-
-            vec2 wdir = normalize(vec2(1.0, 0.35));
-            vec2 d1 = normalize(wdir + vec2( 0.18, -0.06));
-            vec2 d2 = normalize(wdir + vec2(-0.10,  0.14));
-            vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
-            vec2 d4 = normalize(wdir + vec2(-0.22, -0.05));
-            vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
-
-            float w = 0.12 + wind * 0.018;
-
-            vec3 nAcc = vec3(0.0, 1.0, 0.0);
-            vec3 disp = vec3(0.0);
-
-            disp += gerstner(xz, d1, 0.60, 0.95*H, 0.040, 1.00*w, nAcc);
-            disp += gerstner(xz, d2, 0.50, 0.62*H, 0.070, 1.35*w, nAcc);
-            disp += gerstner(xz, d3, 0.38, 0.34*H, 0.120, 1.85*w, nAcc);
-            disp += gerstner(xz, d4, 0.28, 0.20*H, 0.180, 2.35*w, nAcc);
-            disp += gerstner(xz, d5, 0.20, 0.12*H, 0.280, 3.00*w, nAcc);
-
-            float rt = uTime * (1.2 + wind*0.02);
-            float r1 = sin( (xz.x*1.40 + xz.y*1.10)*0.9 + rt*2.2 );
-            float r2 = sin( (xz.x*2.10 - xz.y*1.60)*1.1 + rt*1.8 );
-            float micro = (r1*0.10 + r2*0.08) * (0.25 + 0.02*wind) * (0.35 + 0.45*H);
-            disp.y += micro;
-
-            pos += disp;
-
-            nAcc.xz *= uNormalStrength;
-            vNormal = normalize(nAcc);
-
-            vec4 wp = modelMatrix * vec4(pos, 1.0);
-            vWorldPos = wp.xyz;
-
-            gl_Position = projectionMatrix * viewMatrix * wp;
-          }
-        `,
-        fragmentShader: `
-          precision highp float;
-
-          uniform float uLight;
-          uniform vec3 uSunDir;
-          uniform vec3 uCamPos;
-          uniform vec3 uFogColor;
-          uniform float uFogDensity;
-
-          varying vec3 vWorldPos;
-          varying vec3 vNormal;
-
-          float fresnelSchlick(float cosTheta, float F0){
-            return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
-          }
-
-          void main(){
-            vec3 N = normalize(vNormal);
-            vec3 V = normalize(uCamPos - vWorldPos);
-            vec3 L = normalize(uSunDir);
-
-            vec3 deep = vec3(0.02, 0.08, 0.14);
-            vec3 shallow = vec3(0.05, 0.16, 0.20);
-            float depthHint = clamp((vWorldPos.y + 1.8) * 0.10, 0.0, 1.0);
-            vec3 baseCol = mix(deep, shallow, depthHint);
-
-            float skyMix = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
-            vec3 skyCol = mix(vec3(0.02,0.06,0.10), vec3(0.14,0.24,0.34), pow(skyMix, 1.1));
-
-            vec3 H = normalize(L + V);
-            float ndl = max(dot(N, L), 0.0);
-            float ndh = max(dot(N, H), 0.0);
-
-            float rough = mix(0.085, 0.045, uLight);
-            float specPow = mix(110.0, 320.0, 1.0 - rough);
-            float spec = pow(ndh, specPow) * (0.20 + uLight * 1.10);
-
-            float cosTheta = clamp(dot(N, V), 0.0, 1.0);
-            float F = fresnelSchlick(cosTheta, 0.02);
-
-            vec3 col = baseCol;
-            col = mix(col, skyCol, F * (0.55 + 0.25*uLight));
-            col += vec3(1.0, 0.97, 0.90) * spec * ndl;
-
-            float foam = smoothstep(0.60, 0.94, 1.0 - N.y);
-            col = mix(col, vec3(0.85, 0.93, 1.00), foam * 0.18);
-
-            col = pow(col, vec3(0.92));
-
-            float dist = length(uCamPos - vWorldPos);
-            float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
-            col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
-
-            gl_FragColor = vec4(col, 1.0);
-          }
-        `
-      });
-
-      const ocean = new THREE.Mesh(oceanGeo, oceanMat);
-      ocean.position.y = 0.0;
-      scene.add(ocean);
-
-      // ---------- Controls / UI hooks ----------
-      let paused = false;
-
-      function applyLighting(l){
-        const t = THREE.MathUtils.clamp(l, 0, 1);
-
-        const elev = THREE.MathUtils.lerp(0.12, 0.78, t);
-        const azim = 0.35;
-        const r = 120.0;
-        const x = Math.cos(azim) * r;
-        const z = Math.sin(azim) * r;
-        const y = THREE.MathUtils.lerp(14, 78, elev);
-
-        sun.position.set(x, y, z);
-        sun.intensity = THREE.MathUtils.lerp(0.75, 1.45, t);
-        ambient.intensity = THREE.MathUtils.lerp(0.16, 0.30, t);
-
-        const top = new THREE.Color().setHSL(0.58, 0.52, THREE.MathUtils.lerp(0.18, 0.32, t));
-        const mid = new THREE.Color().setHSL(0.56, 0.48, THREE.MathUtils.lerp(0.11, 0.26, t));
-        const bottom = new THREE.Color().setHSL(0.60, 0.66, THREE.MathUtils.lerp(0.05, 0.10, t));
-        skyMat.uniforms.uTop.value.copy(top);
-        skyMat.uniforms.uMid.value.copy(mid);
-        skyMat.uniforms.uBottom.value.copy(bottom);
-        skyMat.uniforms.uLight.value = t;
-
-        const sdir = new THREE.Vector3().copy(sun.position).normalize();
-        skyMat.uniforms.uSunDir.value.copy(sdir);
-
-        const moonDir = sdir.clone().multiplyScalar(-1.0).add(new THREE.Vector3(-0.12, 0.18, -0.06)).normalize();
-        skyMat.uniforms.uMoonDir.value.copy(moonDir);
-
-        oceanMat.uniforms.uLight.value = t;
-        oceanMat.uniforms.uSunDir.value.copy(sdir);
-
-        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.95, 1.08, t);
-      }
-
-      function applyWindAndHeight(){
-        oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
-        oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
-
-        const wind = parseFloat(ui.wind.value);
-        const h = parseFloat(ui.height.value);
-        oceanMat.uniforms.uNormalStrength.value = 8.0 + wind*0.15 + h*1.2;
-      }
-
-      ui.resetBtn.addEventListener("click", () => {
-        ui.wind.value = "12";
-        ui.height.value = "1.0";
-        ui.light.value = "0.62";
+        if (!hasWebGL()) throw new Error("WebGL not available. Enable hardware acceleration.");
+        if (!window.THREE) throw new Error("THREE is not loaded. Ensure vendor/three.min.js exists and is committed.");
+
+        const THREE = window.THREE;
+
+        // ---------- UI ----------
+        const ui = {
+          wind: document.getElementById("wind"),
+          height: document.getElementById("height"),
+          light: document.getElementById("light"),
+          windVal: document.getElementById("windVal"),
+          heightVal: document.getElementById("heightVal"),
+          lightVal: document.getElementById("lightVal"),
+          resetBtn: document.getElementById("resetBtn"),
+          pauseBtn: document.getElementById("pauseBtn"),
+          fsBtn: document.getElementById("fsBtn"),
+        };
+
+        function syncLabels(){
+          ui.windVal.textContent = (Number(ui.wind.value) / 10).toFixed(2) + "×";
+          ui.heightVal.textContent = Number(ui.height.value).toFixed(2) + "×";
+          ui.lightVal.textContent = Math.round(Number(ui.light.value) * 100) + "%";
+        }
+        ["input","change"].forEach(evt => {
+          ui.wind.addEventListener(evt, syncLabels);
+          ui.height.addEventListener(evt, syncLabels);
+          ui.light.addEventListener(evt, syncLabels);
+        });
         syncLabels();
+
+        // ---------- Renderer ----------
+        const app = document.getElementById("app");
+        const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 2.0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: "high-performance" });
+        renderer.setPixelRatio(dpr);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // three r152+ uses outputColorSpace
+        if (renderer.outputColorSpace !== undefined) renderer.outputColorSpace = THREE.SRGBColorSpace;
+        else renderer.outputEncoding = THREE.sRGBEncoding;
+
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.05;
+
+        app.appendChild(renderer.domElement);
+
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x07111d, 0.0038);
+
+        // Cinematic camera
+        const camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.05, 5000);
+
+        // ---------- Hand-rolled orbit controls ----------
+        const orbit = {
+          target: new THREE.Vector3(0, 1.2, 0),
+          radius: 26,
+          yaw: 1.10,
+          pitch: 0.18,
+          minRadius: 10,
+          maxRadius: 120,
+          minPitch: 0.06,
+          maxPitch: Math.PI * 0.40,
+          dragging: false,
+          lastX: 0,
+          lastY: 0,
+          speed: 0.0068
+        };
+        function updateCamera(){
+          const cp = Math.cos(orbit.pitch), sp = Math.sin(orbit.pitch);
+          const cy = Math.cos(orbit.yaw),   sy = Math.sin(orbit.yaw);
+          const x = orbit.radius * cp * cy;
+          const z = orbit.radius * cp * sy;
+          const y = orbit.radius * sp;
+          camera.position.set(orbit.target.x + x, orbit.target.y + y, orbit.target.z + z);
+          camera.lookAt(orbit.target);
+        }
+        updateCamera();
+
+        renderer.domElement.style.touchAction = "none";
+        renderer.domElement.addEventListener("pointerdown", (e) => {
+          orbit.dragging = true;
+          orbit.lastX = e.clientX; orbit.lastY = e.clientY;
+          renderer.domElement.setPointerCapture(e.pointerId);
+        });
+        renderer.domElement.addEventListener("pointermove", (e) => {
+          if (!orbit.dragging) return;
+          const dx = e.clientX - orbit.lastX;
+          const dy = e.clientY - orbit.lastY;
+          orbit.lastX = e.clientX; orbit.lastY = e.clientY;
+
+          orbit.yaw   -= dx * orbit.speed;
+          orbit.pitch -= dy * orbit.speed;
+          orbit.pitch = Math.max(orbit.minPitch, Math.min(orbit.maxPitch, orbit.pitch));
+          updateCamera();
+        });
+        renderer.domElement.addEventListener("pointerup", (e) => {
+          orbit.dragging = false;
+          try{ renderer.domElement.releasePointerCapture(e.pointerId); }catch(_){}
+        });
+        renderer.domElement.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          const s = (e.deltaY > 0) ? 1.06 : 0.94;
+          orbit.radius = Math.max(orbit.minRadius, Math.min(orbit.maxRadius, orbit.radius * s));
+          updateCamera();
+        }, { passive: false });
+
+        // ---------- Lights (moon + subtle fill) ----------
+        const ambient = new THREE.AmbientLight(0xbad7ff, 0.18);
+        scene.add(ambient);
+
+        const moonLight = new THREE.DirectionalLight(0xe6f1ff, 1.25);
+        moonLight.position.set(60, 80, 25);
+        scene.add(moonLight);
+
+        // optional very dim rim (just to lift blacks)
+        const rim = new THREE.DirectionalLight(0x8fb3d9, 0.25);
+        rim.position.set(-80, 30, -40);
+        scene.add(rim);
+
+        // ---------- SKY: gradient + stars + moon disc ----------
+        const skyGeo = new THREE.SphereGeometry(2200, 48, 24);
+        const skyMat = new THREE.ShaderMaterial({
+          side: THREE.BackSide,
+          uniforms: {
+            uTime: { value: 0 },
+            uLight: { value: parseFloat(ui.light.value) },
+            uMoonDir: { value: new THREE.Vector3().copy(moonLight.position).normalize() },
+            uTop: { value: new THREE.Color(0x0b2a43) },
+            uMid: { value: new THREE.Color(0x071b2e) },
+            uBottom: { value: new THREE.Color(0x050b14) },
+          },
+          vertexShader: `
+            varying vec3 vDir;
+            void main(){
+              vec3 wpos = (modelMatrix * vec4(position,1.0)).xyz;
+              vDir = normalize(wpos);
+              gl_Position = projectionMatrix * viewMatrix * vec4(wpos, 1.0);
+            }
+          `,
+          fragmentShader: `
+            precision highp float;
+            varying vec3 vDir;
+            uniform float uTime;
+            uniform float uLight;
+            uniform vec3 uMoonDir;
+            uniform vec3 uTop, uMid, uBottom;
+
+            float hash(vec2 p){
+              p = fract(p * vec2(123.34, 456.21));
+              p += dot(p, p + 34.345);
+              return fract(p.x * p.y);
+            }
+            float starField(vec3 d){
+              // project to 2D
+              vec2 uv = d.xz / (abs(d.y) + 1.2);
+              uv *= 220.0;
+              float h = hash(floor(uv));
+              float s = smoothstep(0.9975, 1.0, h);
+              float tw = 0.6 + 0.4 * sin(uTime * 1.7 + h * 40.0);
+              return s * tw;
+            }
+            void main(){
+              float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
+
+              // base gradient
+              vec3 col = mix(uBottom, uMid, smoothstep(0.00, 0.55, h));
+              col = mix(col, uTop,    smoothstep(0.35, 1.00, h));
+
+              // subtle high-alt haze
+              col += vec3(0.02,0.03,0.04) * smoothstep(0.55, 1.0, h) * (0.6 + 0.6*uLight);
+
+              // stars (more visible when darker)
+              float stars = starField(vDir) * (1.0 - uLight) * 1.2;
+              col += vec3(0.9, 0.95, 1.0) * stars;
+
+              // moon disc + halo
+              float md = clamp(dot(normalize(vDir), normalize(uMoonDir)), 0.0, 1.0);
+              float moonCore = smoothstep(0.9994, 1.0, md);
+              float moonHalo = smoothstep(0.985, 1.0, md) * 0.45;
+              vec3 moonCol = vec3(0.92, 0.96, 1.00);
+
+              col += moonCol * (moonCore * 2.4 + moonHalo);
+
+              // mild vignette to keep calming
+              float v = smoothstep(0.0, 0.7, h);
+              col *= (0.90 + 0.10 * v);
+
+              gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
+            }
+          `
+        });
+        scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+        // ---------- OCEAN ----------
+        const oceanSize = 1200;
+        const segments = isMobile ? 220 : 360;
+        const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
+        oceanGeo.rotateX(-Math.PI/2);
+
+        const oceanMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uTime:   { value: 0 },
+            uWind:   { value: parseFloat(ui.wind.value) },
+            uHeight: { value: parseFloat(ui.height.value) },
+            uLight:  { value: parseFloat(ui.light.value) },
+            uMoonDir:{ value: new THREE.Vector3().copy(moonLight.position).normalize() },
+            uRimDir: { value: new THREE.Vector3().copy(rim.position).normalize() },
+            uCamPos: { value: new THREE.Vector3() },
+            uFogColor: { value: new THREE.Color(0x07111d) },
+            uFogDensity: { value: 0.0038 },
+          },
+          vertexShader: `
+            precision highp float;
+
+            uniform float uTime;
+            uniform float uWind;
+            uniform float uHeight;
+
+            varying vec3 vWorldPos;
+            varying vec3 vN;
+            varying float vH;
+
+            // Gerstner wave with analytic derivatives for better normals
+            void wave(in vec2 xz, in vec2 dir, in float steep, in float amp, in float freq, in float speed,
+                      inout vec3 p, inout vec3 dPx, inout vec3 dPz)
+            {
+              float t = uTime * speed;
+              float phase = freq * dot(dir, xz) + t;
+
+              float s = sin(phase);
+              float c = cos(phase);
+
+              float qa = steep * amp;
+
+              // displacement
+              p.x += dir.x * qa * c;
+              p.y += amp * s;
+              p.z += dir.y * qa * c;
+
+              // partial derivatives (approx, enough to enrich lighting)
+              // d/dx
+              float dphdx = freq * dir.x;
+              dPx.x += -dir.x * qa * s * dphdx;
+              dPx.y +=  amp * c * dphdx;
+              dPx.z += -dir.y * qa * s * dphdx;
+
+              // d/dz
+              float dphdz = freq * dir.y;
+              dPz.x += -dir.x * qa * s * dphdz;
+              dPz.y +=  amp * c * dphdz;
+              dPz.z += -dir.y * qa * s * dphdz;
+            }
+
+            void main(){
+              vec3 p = position;
+              vec2 xz = p.xz;
+
+              float wind = max(uWind, 0.0);
+              float H = uHeight;
+
+              vec2 wdir = normalize(vec2(1.0, 0.34));
+              vec2 d1 = normalize(wdir + vec2( 0.18, -0.06));
+              vec2 d2 = normalize(wdir + vec2(-0.10,  0.14));
+              vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
+              vec2 d4 = normalize(wdir + vec2(-0.22, -0.05));
+              vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
+
+              float baseSpeed = 0.10 + wind * 0.018;
+
+              // start derivatives as basis vectors
+              vec3 dPx = vec3(1.0, 0.0, 0.0);
+              vec3 dPz = vec3(0.0, 0.0, 1.0);
+
+              // multi-scale waves (more “layered”)
+              wave(xz, d1, 0.65, 1.05*H, 0.035, 1.00*baseSpeed, p, dPx, dPz);
+              wave(xz, d2, 0.55, 0.70*H, 0.060, 1.35*baseSpeed, p, dPx, dPz);
+              wave(xz, d3, 0.42, 0.40*H, 0.110, 1.85*baseSpeed, p, dPx, dPz);
+              wave(xz, d4, 0.30, 0.24*H, 0.170, 2.35*baseSpeed, p, dPx, dPz);
+              wave(xz, d5, 0.22, 0.14*H, 0.260, 3.00*baseSpeed, p, dPx, dPz);
+
+              // tiny vertical ripples (adds sparkle)
+              float rt = uTime * (1.2 + wind*0.02);
+              float r1 = sin( (xz.x*1.50 + xz.y*1.15)*0.95 + rt*2.2 );
+              float r2 = sin( (xz.x*2.20 - xz.y*1.65)*1.10 + rt*1.8 );
+              float micro = (r1*0.10 + r2*0.08) * (0.25 + 0.02*wind) * (0.40 + 0.50*H);
+              p.y += micro;
+
+              // normal from derivatives
+              vec3 N = normalize(cross(dPz, dPx));
+
+              vec4 wp = modelMatrix * vec4(p, 1.0);
+              vWorldPos = wp.xyz;
+              vN = N;
+              vH = p.y;
+
+              gl_Position = projectionMatrix * viewMatrix * wp;
+            }
+          `,
+          fragmentShader: `
+            precision highp float;
+
+            uniform float uTime;
+            uniform float uWind;
+            uniform float uHeight;
+            uniform float uLight;
+            uniform vec3 uMoonDir;
+            uniform vec3 uRimDir;
+            uniform vec3 uCamPos;
+            uniform vec3 uFogColor;
+            uniform float uFogDensity;
+
+            varying vec3 vWorldPos;
+            varying vec3 vN;
+            varying float vH;
+
+            float hash(vec2 p){
+              p = fract(p * vec2(123.34, 456.21));
+              p += dot(p, p + 34.345);
+              return fract(p.x * p.y);
+            }
+            float noise(vec2 p){
+              vec2 i = floor(p);
+              vec2 f = fract(p);
+              float a = hash(i);
+              float b = hash(i + vec2(1.0, 0.0));
+              float c = hash(i + vec2(0.0, 1.0));
+              float d = hash(i + vec2(1.0, 1.0));
+              vec2 u = f*f*(3.0-2.0*f);
+              return mix(a, b, u.x) + (c - a)*u.y*(1.0 - u.x) + (d - b)*u.x*u.y;
+            }
+            float fbm(vec2 p){
+              float v = 0.0;
+              float a = 0.55;
+              for(int i=0;i<5;i++){
+                v += a * noise(p);
+                p *= 2.02;
+                a *= 0.52;
+              }
+              return v;
+            }
+
+            float fresnelSchlick(float cosTheta, float F0){
+              return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+            }
+
+            vec3 skyColor(vec3 dir){
+              // simple procedural sky used for reflections (matches sky mood)
+              float h = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
+              vec3 bottom = vec3(0.02,0.03,0.05);
+              vec3 mid    = vec3(0.04,0.10,0.16);
+              vec3 top    = vec3(0.06,0.18,0.26);
+              vec3 col = mix(bottom, mid, smoothstep(0.00, 0.55, h));
+              col = mix(col, top, smoothstep(0.35, 1.00, h));
+
+              // moon glow
+              float md = clamp(dot(normalize(dir), normalize(uMoonDir)), 0.0, 1.0);
+              float halo = smoothstep(0.97, 1.0, md) * 0.55;
+              col += vec3(0.10,0.12,0.14) * halo;
+
+              return col;
+            }
+
+            void main(){
+              vec3 N = normalize(vN);
+              vec3 V = normalize(uCamPos - vWorldPos);
+
+              // add micro-normal detail in fragment (key for layered ripples)
+              vec2 p = vWorldPos.xz * 0.08;
+              float t = uTime * (0.35 + 0.015*uWind);
+              float n = fbm(p + vec2(t, -t));
+              float n2 = fbm(p*1.9 + vec2(-t*1.2, t*1.1));
+              float m = (n*0.65 + n2*0.35);
+
+              // approximate gradient for bump
+              float eps = 0.22;
+              float nx = fbm(p + vec2(eps, 0.0) + vec2(t, -t));
+              float nz = fbm(p + vec2(0.0, eps) + vec2(t, -t));
+              vec3 bump = normalize(vec3((nx - n), 0.35, (nz - n)));
+
+              float bumpStrength = 0.55 + 0.02*uWind + 0.10*uHeight;
+              N = normalize(mix(N, bump, clamp(bumpStrength, 0.0, 1.0)));
+
+              vec3 Lm = normalize(uMoonDir);
+              vec3 Lr = normalize(uRimDir);
+
+              // base water color (depth-ish)
+              vec3 deep = vec3(0.02, 0.07, 0.12);
+              vec3 shallow = vec3(0.04, 0.15, 0.18);
+
+              float facing = clamp(N.y * 0.5 + 0.5, 0.0, 1.0);
+              vec3 baseCol = mix(deep, shallow, facing);
+
+              // reflection
+              vec3 R = reflect(-V, N);
+              vec3 sky = skyColor(R);
+
+              // fresnel
+              float cosTheta = clamp(dot(N, V), 0.0, 1.0);
+              float F = fresnelSchlick(cosTheta, 0.02);
+
+              // specular (moon)
+              vec3 Hm = normalize(Lm + V);
+              float ndh = max(dot(N, Hm), 0.0);
+              float ndl = max(dot(N, Lm), 0.0);
+
+              // calmer look: keep roughness not too sharp, but still sparkly
+              float wind01 = clamp(uWind / 30.0, 0.0, 1.0);
+              float rough = mix(0.10, 0.035, wind01);
+              float specPow = mix(90.0, 420.0, 1.0 - rough);
+              float spec = pow(ndh, specPow) * (0.18 + 1.25*uLight) * ndl;
+
+              // moon reflection streak (very “realistic” cue)
+              float moonAlign = pow(clamp(dot(R, Lm), 0.0, 1.0), 80.0);
+              float shimmer = pow(clamp(1.0 - N.y, 0.0, 1.0), 2.0);
+              vec3 moonCol = vec3(0.92, 0.96, 1.00);
+              vec3 moonStreak = moonCol * moonAlign * (0.6 + 1.2*shimmer) * (0.35 + 0.65*uLight);
+
+              // foam: crest (height) + slope (normal)
+              float crest = smoothstep(0.55, 1.10, vH * (0.9 + 0.2*wind01));
+              float slope = smoothstep(0.55, 0.92, 1.0 - N.y);
+              float foam = clamp(crest * 0.9 + slope * 0.55, 0.0, 1.0);
+
+              // tiny glitter (sparkle dots)
+              float g = noise(vWorldPos.xz * 3.2 + vec2(uTime*0.6, -uTime*0.5));
+              float glitter = smoothstep(0.86, 1.0, g) * (0.25 + 0.6*wind01) * ndl;
+              vec3 glitterCol = moonCol * glitter * 0.55;
+
+              vec3 col = baseCol;
+
+              // mix reflection with fresnel
+              col = mix(col, sky, F * (0.55 + 0.25*uLight));
+
+              // spec + streak + foam + glitter
+              col += moonCol * spec;
+              col += moonStreak;
+              col = mix(col, vec3(0.86, 0.93, 1.00), foam * 0.22);
+              col += glitterCol;
+
+              // gentle contrast (calming)
+              col = pow(col, vec3(0.93));
+
+              // fog
+              float dist = length(uCamPos - vWorldPos);
+              float fog = 1.0 - exp(-uFogDensity * uFogDensity * dist * dist);
+              col = mix(col, uFogColor, clamp(fog, 0.0, 1.0));
+
+              gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
+            }
+          `
+        });
+
+        const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+        ocean.position.y = 0.0;
+        scene.add(ocean);
+
+        // ---------- Runtime hooks ----------
+        let paused = false;
+
+        function applyLighting(l){
+          const t = THREE.MathUtils.clamp(l, 0, 1);
+
+          // moon position (slight movement with slider for mood)
+          const elev = THREE.MathUtils.lerp(0.18, 0.72, t);
+          const azim = 0.38;
+          const r = 140.0;
+          const x = Math.cos(azim) * r;
+          const z = Math.sin(azim) * r;
+          const y = THREE.MathUtils.lerp(22, 92, elev);
+
+          moonLight.position.set(x, y, z);
+          moonLight.intensity = THREE.MathUtils.lerp(0.85, 1.55, t);
+          ambient.intensity = THREE.MathUtils.lerp(0.14, 0.26, t);
+
+          // fog slightly lighter with higher lighting
+          const fogD = THREE.MathUtils.lerp(0.0042, 0.0032, t);
+          scene.fog.density = fogD;
+          oceanMat.uniforms.uFogDensity.value = fogD;
+
+          // exposure
+          renderer.toneMappingExposure = THREE.MathUtils.lerp(0.98, 1.10, t);
+
+          // sky palette shifts a bit
+          skyMat.uniforms.uLight.value = t;
+          skyMat.uniforms.uMoonDir.value.copy(moonLight.position).normalize();
+
+          oceanMat.uniforms.uLight.value = t;
+          oceanMat.uniforms.uMoonDir.value.copy(moonLight.position).normalize();
+        }
+
+        function applyWindAndHeight(){
+          oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
+          oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+        }
+
+        ui.resetBtn.addEventListener("click", () => {
+          ui.wind.value = "12";
+          ui.height.value = "1.0";
+          ui.light.value = "0.62";
+          syncLabels();
+
+          orbit.target.set(0, 1.2, 0);
+          orbit.radius = 26;
+          orbit.yaw = 1.10;
+          orbit.pitch = 0.18;
+          updateCamera();
+
+          applyWindAndHeight();
+          applyLighting(parseFloat(ui.light.value));
+        });
+
+        ui.pauseBtn.addEventListener("click", () => {
+          paused = !paused;
+          ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
+        });
+
+        async function toggleFullscreen(){
+          if (!document.fullscreenElement){
+            await document.documentElement.requestFullscreen?.();
+          }else{
+            await document.exitFullscreen?.();
+          }
+        }
+        ui.fsBtn.addEventListener("click", toggleFullscreen);
+
+        ui.wind.addEventListener("input", applyWindAndHeight);
+        ui.height.addEventListener("input", applyWindAndHeight);
+        ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
+
+        window.addEventListener("keydown", (e) => {
+          if (e.code === "Space"){
+            e.preventDefault();
+            paused = !paused;
+            ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
+          }
+          if (e.key.toLowerCase() === "f"){
+            toggleFullscreen();
+          }
+        });
+
+        // init
+        resizeGrain();
+        drawGrain();
         applyWindAndHeight();
         applyLighting(parseFloat(ui.light.value));
 
-        orbit.target.set(0, 0.8, 0);
-        orbit.radius = 24;
-        orbit.yaw = 1.02;
-        orbit.pitch = 0.20;
-        updateCamera();
-      });
+        // ---------- Loop ----------
+        const clock = new THREE.Clock();
+        let grainAcc = 0;
+        function tick(){
+          requestAnimationFrame(tick);
+          const dt = clock.getDelta();
 
-      ui.pauseBtn.addEventListener("click", () => {
-        paused = !paused;
-        ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
-      });
+          if (!paused){
+            oceanMat.uniforms.uTime.value += dt;
+            skyMat.uniforms.uTime.value += dt;
+          }
 
-      async function toggleFullscreen(){
-        if (!document.fullscreenElement){
-          await document.documentElement.requestFullscreen?.();
-        }else{
-          await document.exitFullscreen?.();
+          oceanMat.uniforms.uCamPos.value.copy(camera.position);
+          oceanMat.uniforms.uRimDir.value.copy(rim.position).normalize();
+          oceanMat.uniforms.uMoonDir.value.copy(moonLight.position).normalize();
+          skyMat.uniforms.uMoonDir.value.copy(moonLight.position).normalize();
+
+          renderer.render(scene, camera);
+
+          grainAcc += dt;
+          if (grainAcc > 0.05){
+            drawGrain();
+            grainAcc = 0;
+          }
         }
+        tick();
+
+        // ---------- Resize ----------
+        function onResize(){
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          resizeGrain();
+        }
+        window.addEventListener("resize", onResize);
+
+      } catch (e) {
+        showError(e);
       }
-      ui.fsBtn.addEventListener("click", toggleFullscreen);
-
-      ui.wind.addEventListener("input", applyWindAndHeight);
-      ui.height.addEventListener("input", applyWindAndHeight);
-      ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
-
-      window.addEventListener("keydown", (e) => {
-        if (e.code === "Space"){
-          e.preventDefault();
-          paused = !paused;
-          ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
-        }
-        if (e.key.toLowerCase() === "f"){
-          toggleFullscreen();
-        }
-      });
-
-      // init
-      applyWindAndHeight();
-      applyLighting(parseFloat(ui.light.value));
-
-      // ---------- Loop ----------
-      const clock = new THREE.Clock();
-      let grainAcc = 0;
-      function tick(){
-        requestAnimationFrame(tick);
-
-        const dt = clock.getDelta();
-        if (!paused) oceanMat.uniforms.uTime.value += dt;
-
-        oceanMat.uniforms.uCamPos.value.copy(camera.position);
-
-        // drive sky time (twinkle)
-        skyMat.uniforms.uTime.value = oceanMat.uniforms.uTime.value;
-
-        renderer.render(scene, camera);
-
-        grainAcc += dt;
-        if (grainAcc > 0.05){
-          drawGrain();
-          grainAcc = 0;
-        }
-      }
-      tick();
-
-      // ---------- Resize ----------
-      function onResize(){
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-        resizeGrain();
-      }
-      window.addEventListener("resize", onResize);
-
-    } catch (e) {
-      showError(e);
-    }
+    })();
   </script>
 </body>
 </html>
