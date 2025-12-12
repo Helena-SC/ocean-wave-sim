@@ -411,4 +411,364 @@
       });
 
       // ---------- Ocean mesh ----------
-      const oceanSize = 1800
+      const oceanSize = 1800;
+      const segments = isMobile ? 260 : 520;
+
+      const oceanGeo = new THREE.PlaneGeometry(oceanSize, oceanSize, segments, segments);
+      oceanGeo.rotateX(-Math.PI / 2);
+      oceanGeo.translate(0, 0.0, 320);  // 往前推一点，铺满画面
+
+      const oceanMat = new THREE.ShaderMaterial({
+        transparent: false,
+        depthWrite: true,
+        uniforms: {
+          uTime:   { value: 0 },
+          uWind:   { value: parseFloat(ui.wind.value) },
+          uHeight: { value: parseFloat(ui.height.value) },
+          uLight:  { value: parseFloat(ui.light.value) },
+          uKeyDir: { value: new THREE.Vector3().copy(key.position).normalize() },
+          uCamPos: { value: new THREE.Vector3() },
+          uEnv:    { value: envTex },
+        },
+        vertexShader: `
+          precision highp float;
+
+          uniform float uTime;
+          uniform float uWind;
+          uniform float uHeight;
+
+          varying vec3 vWorldPos;
+          varying vec3 vN;
+          varying float vFoamHint;
+
+          vec3 gerstner(vec2 xz, vec2 dir, float steep, float amp, float freq, float speed, inout vec3 nAcc){
+            float t = uTime * speed;
+            float phase = freq * dot(dir, xz) + t;
+            float s = sin(phase);
+            float c = cos(phase);
+
+            float qa = steep * amp;
+            vec3 disp = vec3(dir.x * qa * c, amp * s, dir.y * qa * c);
+
+            nAcc.x += -dir.x * qa * freq * s;
+            nAcc.y +=  1.0 - (steep * amp * freq) * c * 0.18;
+            nAcc.z += -dir.y * qa * freq * s;
+
+            return disp;
+          }
+
+          void main(){
+            vec3 pos = position;
+            vec2 xz = pos.xz;
+
+            float wind = max(uWind, 0.0);
+            float H = uHeight;
+
+            vec2 wdir = normalize(vec2(1.0, 0.22));
+            vec2 d1 = normalize(wdir + vec2( 0.17, -0.04));
+            vec2 d2 = normalize(wdir + vec2(-0.09,  0.13));
+            vec2 d3 = normalize(wdir + vec2( 0.08,  0.22));
+            vec2 d4 = normalize(wdir + vec2(-0.22, -0.06));
+            vec2 d5 = normalize(wdir + vec2( 0.02, -0.28));
+
+            float w = 0.12 + wind * 0.018;
+
+            vec3 nAcc = vec3(0.0, 1.0, 0.0);
+            vec3 disp = vec3(0.0);
+
+            // 大尺度波
+            disp += gerstner(xz, d1, 0.62, 1.05*H, 0.034, 1.00*w, nAcc);
+            disp += gerstner(xz, d2, 0.52, 0.70*H, 0.062, 1.34*w, nAcc);
+            disp += gerstner(xz, d3, 0.40, 0.44*H, 0.110, 1.88*w, nAcc);
+            disp += gerstner(xz, d4, 0.30, 0.28*H, 0.170, 2.40*w, nAcc);
+            disp += gerstner(xz, d5, 0.22, 0.18*H, 0.250, 3.05*w, nAcc);
+
+            // 中尺度细纹（增加“层次”）
+            float rt = uTime * (1.2 + wind*0.02);
+            float r1 = sin( (xz.x*1.40 + xz.y*1.05)*1.1 + rt*2.2 );
+            float r2 = sin( (xz.x*2.20 - xz.y*1.70)*1.2 + rt*1.8 );
+            float micro = (r1*0.10 + r2*0.08) * (0.24 + 0.02*wind) * (0.35 + 0.55*H);
+            disp.y += micro;
+
+            pos += disp;
+
+            float slope = 1.0 - normalize(nAcc).y;
+            vFoamHint = smoothstep(0.18, 0.55, slope) * (0.55 + 0.45*H);
+
+            vN = normalize(nAcc);
+
+            vec4 wp = modelMatrix * vec4(pos, 1.0);
+            vWorldPos = wp.xyz;
+            gl_Position = projectionMatrix * viewMatrix * wp;
+          }
+        `,
+        fragmentShader: `
+          precision highp float;
+
+          uniform float uTime;
+          uniform float uLight;
+          uniform float uWind;
+          uniform float uHeight;
+
+          uniform vec3  uKeyDir;
+          uniform vec3  uCamPos;
+
+          uniform sampler2D uEnv;
+
+          varying vec3 vWorldPos;
+          varying vec3 vN;
+          varying float vFoamHint;
+
+          float sat(float x){ return clamp(x, 0.0, 1.0); }
+
+          float hash(vec2 p){
+            p = fract(p*vec2(123.34, 345.45));
+            p += dot(p, p+34.345);
+            return fract(p.x*p.y);
+          }
+
+          float noise(vec2 p){
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            float a = hash(i);
+            float b = hash(i + vec2(1.0, 0.0));
+            float c = hash(i + vec2(0.0, 1.0));
+            float d = hash(i + vec2(1.0, 1.0));
+            vec2 u = f*f*(3.0-2.0*f);
+            return mix(a, b, u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
+          }
+
+          float fbm(vec2 p){
+            float v = 0.0;
+            float a = 0.5;
+            for(int i=0;i<5;i++){
+              v += a * noise(p);
+              p *= 2.0;
+              a *= 0.5;
+            }
+            return v;
+          }
+
+          vec3 microNormal(vec2 xz, float t){
+            // 稍微多一层，增加“丰富的波纹层次”
+            vec2 d1 = normalize(vec2(1.0, 0.35));
+            vec2 d2 = normalize(vec2(-0.55, 0.82));
+            vec2 d3 = normalize(vec2(0.12, -0.99));
+
+            float f1 = 0.90, f2 = 1.45, f3 = 2.05;
+            float a = 0.20 + 0.016*uWind + 0.07*uHeight;
+
+            float p1 = dot(xz, d1)*f1 + t*1.9;
+            float p2 = dot(xz, d2)*f2 + t*2.3;
+            float p3 = dot(xz, d3)*f3 + t*2.7;
+
+            vec2 g = vec2(
+              cos(p1)*d1.x*f1 + cos(p2)*d2.x*f2 + cos(p3)*d3.x*f3,
+              cos(p1)*d1.y*f1 + cos(p2)*d2.y*f2 + cos(p3)*d3.y*f3
+            );
+
+            // 噪声扰动（像真实水面那种“碎光”）
+            float n = fbm(xz*0.10 + vec2(t*0.08, -t*0.05));
+            g *= mix(0.85, 1.15, n);
+
+            return normalize(vec3(-g.x*a, 1.0, -g.y*a));
+          }
+
+          float fresnel(float cosTheta, float F0){
+            return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+          }
+
+          float specGGX(vec3 N, vec3 V, vec3 L, float rough){
+            vec3 H = normalize(V + L);
+            float ndl = max(dot(N,L), 0.0);
+            float ndv = max(dot(N,V), 0.0);
+            float ndh = max(dot(N,H), 0.0);
+            float a = rough*rough;
+            float a2 = a*a;
+            float denom = (ndh*ndh)*(a2-1.0)+1.0;
+            float D = a2 / (3.14159 * denom * denom + 1e-5);
+            float k = (rough+1.0);
+            k = (k*k)/8.0;
+            float Gv = ndv / (ndv*(1.0-k)+k);
+            float Gl = ndl / (ndl*(1.0-k)+k);
+            float G = Gv*Gl;
+            return D*G*ndl;
+          }
+
+          vec2 dirToEnvUV(vec3 d){
+            // 反射方向 -> 球面采样 u,v
+            float u = atan(d.z, d.x) / (6.2831853) + 0.5;
+            float v = asin(clamp(d.y, -1.0, 1.0)) / 3.14159265 + 0.5;
+
+            // 只取“天空部分”，避免采到原图的水面区域
+            v = clamp(v, 0.52, 0.98);
+            return vec2(u, v);
+          }
+
+          void main(){
+            vec3 V = normalize(uCamPos - vWorldPos);
+
+            vec3 N0 = normalize(vN);
+            vec3 Nm = microNormal(vWorldPos.xz*0.60, uTime);
+            vec3 N  = normalize(mix(N0, Nm, 0.62));
+
+            // 深邃夜海基色（更接近 #050F1E / #0A1428 的体系）
+            vec3 deep = vec3(0.006, 0.020, 0.045);
+            vec3 mid  = vec3(0.014, 0.045, 0.080);
+            vec3 col = mix(deep, mid, 0.58);
+
+            // 环境反射（来自你的星空照片）
+            vec3 R = reflect(-V, N);
+            vec2 uv = dirToEnvUV(normalize(R));
+            vec3 env = texture2D(uEnv, uv).rgb;
+
+            // Fresnel 控制反射比例（真实水面必须有）
+            float cosTheta = sat(dot(N, V));
+            float F = fresnel(cosTheta, 0.02);
+
+            // 让反射更“冷”、更夜空感
+            env = pow(env, vec3(1.05));
+            col = mix(col, env, F*(0.72 + 0.20*uLight));
+
+            // 高光（碎光、sparkle）
+            vec3 L = normalize(uKeyDir);
+            float rough = mix(0.24, 0.10, uLight);
+            float spec = specGGX(N, V, L, rough);
+            col += vec3(0.90, 0.95, 1.00) * spec * (0.10 + 0.75*uLight);
+
+            // 轻微泡沫（只在浪尖，不要太白，保持 calming）
+            float foam = vFoamHint;
+            col = mix(col, vec3(0.70, 0.80, 0.92), foam * 0.10);
+
+            // 远处稍微更亮一点（模仿空气透视）
+            float dist = length(uCamPos - vWorldPos);
+            float haze = sat((dist - 40.0) / 180.0);
+            col = mix(col, vec3(0.018, 0.050, 0.090), haze*0.20);
+
+            // 电影感轻微对比
+            col = pow(col, vec3(0.98));
+
+            gl_FragColor = vec4(col, 1.0);
+          }
+        `
+      });
+
+      const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+      ocean.position.y = 0.0;
+      scene.add(ocean);
+
+      // ---------- Controls ----------
+      let paused = false;
+
+      function applyLighting(l){
+        const t = THREE.MathUtils.clamp(l, 0, 1);
+
+        const elev = THREE.MathUtils.lerp(0.18, 0.72, t);
+        const azim = THREE.MathUtils.lerp(0.10, 0.58, t);
+        const r = 120.0;
+
+        const x = Math.cos(azim) * r;
+        const z = Math.sin(azim) * r;
+        const y = THREE.MathUtils.lerp(14.0, 78.0, elev);
+
+        key.position.set(x, y, z);
+        key.intensity = THREE.MathUtils.lerp(0.18, 1.35, t);
+        ambient.intensity = THREE.MathUtils.lerp(0.04, 0.12, t);
+
+        oceanMat.uniforms.uLight.value = t;
+        renderer.toneMappingExposure = THREE.MathUtils.lerp(0.92, 1.06, t);
+      }
+
+      function applyWindAndHeight(){
+        oceanMat.uniforms.uWind.value = parseFloat(ui.wind.value);
+        oceanMat.uniforms.uHeight.value = parseFloat(ui.height.value);
+      }
+
+      ui.resetBtn.addEventListener("click", () => {
+        ui.wind.value = "12";
+        ui.height.value = "1.0";
+        ui.light.value = "0.62";
+        syncLabels();
+        applyWindAndHeight();
+        applyLighting(parseFloat(ui.light.value));
+
+        orbit.target.set(0, 0.55, 30.0);
+        orbit.radius = 28;
+        orbit.yaw = 0.0;
+        orbit.pitch = 0.14;
+        updateCamera();
+      });
+
+      ui.pauseBtn.addEventListener("click", () => {
+        paused = !paused;
+        ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
+      });
+
+      async function toggleFullscreen(){
+        if (!document.fullscreenElement){
+          await document.documentElement.requestFullscreen?.();
+        }else{
+          await document.exitFullscreen?.();
+        }
+      }
+      ui.fsBtn.addEventListener("click", toggleFullscreen);
+
+      ui.wind.addEventListener("input", applyWindAndHeight);
+      ui.height.addEventListener("input", applyWindAndHeight);
+      ui.light.addEventListener("input", () => applyLighting(parseFloat(ui.light.value)));
+
+      window.addEventListener("keydown", (e) => {
+        if (e.code === "Space"){
+          e.preventDefault();
+          paused = !paused;
+          ui.pauseBtn.textContent = paused ? "Resume" : "Pause";
+        }
+        if (e.key.toLowerCase() === "f"){
+          toggleFullscreen();
+        }
+      });
+
+      // init
+      applyWindAndHeight();
+      applyLighting(parseFloat(ui.light.value));
+
+      // ---------- Loop ----------
+      const clock = new THREE.Clock();
+      let grainAcc = 0;
+
+      function tick(){
+        requestAnimationFrame(tick);
+
+        const dt = clock.getDelta();
+        if (!paused){
+          oceanMat.uniforms.uTime.value += dt;
+        }
+
+        oceanMat.uniforms.uCamPos.value.copy(camera.position);
+        oceanMat.uniforms.uKeyDir.value.copy(key.position).normalize();
+
+        renderer.render(scene, camera);
+
+        grainAcc += dt;
+        if (grainAcc > 0.05){
+          drawGrain();
+          grainAcc = 0;
+        }
+      }
+      tick();
+
+      // ---------- Resize ----------
+      function onResize(){
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        resizeGrain();
+      }
+      window.addEventListener("resize", onResize);
+
+    } catch (e) {
+      showError(e);
+    }
+  </script>
+</body>
+</html>
